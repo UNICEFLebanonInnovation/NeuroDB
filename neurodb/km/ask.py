@@ -74,7 +74,7 @@ from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
-from functools import reduce
+from functools import cache, reduce
 from operator import add, or_
 from typing import Any
 
@@ -254,14 +254,15 @@ _ANSWER = (
     rf"(?:{_THIS}|(?:the|your|this|that|my)\s+(?:(?:previous|last|earlier|whole|above|first|same)\s+)?"
     r"(?:answer|paragraphs?|summary|response|reply|draft|version|wording|(?:text|list|table)(?!\s+of\b)))"
 )
-# where a request opens: the start of the question or of a clause (after a mark, a judgement of the answer,
-# or "but", "and", "so", "then" or "please" in the middle of a sentence: "this is good but can you shorten
-# it", "it is too long can you make it shorter", "the paragraph is too long please shorten it"), maybe after
-# "and", "now", "can you", "please" ("can you expand on this?", "Ok, please shorten it"); never inside a
-# question of its own ("is there an update this year?", "what do teachers do to make it easier to read?", "how
-# can you make it easier for girls?")
+# where a request opens: the start of the question or of a clause (after a mark, or after a judgement of the
+# answer: "it is too long can you make it shorter", "the paragraph is too long please shorten it",
+# :func:`_clauses`; praise before it is no word of the question: "this is good but can you shorten it",
+# :data:`COURTESY`), maybe after "and", "now", "can you", "please" ("can you expand on this?", "Ok, please
+# shorten it"); never inside a question of its own ("is there an update this year?", "what do teachers do to
+# make it easier to read?", "how can you make it easier for girls?", "out of school children in Akkar and
+# translate it to Arabic", "... by governorate then make it shorter")
 _OPENS = (
-    r"(?:^|(?<=[.,;:!?])|\b(?:but|and|so|then)\s+|(?=\b(?:please|pls|plz|kindly)\b))"
+    r"(?:^|(?<=[.,;:!?]))"
     r"\W*(?:(?:and|so|now|then|also|ok|okay|but|just)\W+)*"
     r"(?:(?:can|could|would|will)\s+(?:you|u)\s+|(?:i|we)\s+(?:need|want|would\s+like)\s+(?:you\s+to\s+)?|"
     r"(?:i|we)['’]?d\s+like\s+(?:you\s+to\s+)?|let['’]?s\s+|please\s+|pls\s+|plz\s+|kindly\s+|also\s+|now\s+|"
@@ -272,6 +273,14 @@ _REWORK_VERBS = (
     r"summari[sz]e|condense|translate|refocus|restructure|reorgani[sz]e|convert|elaborate|redraft|reformat|"
     r"reformulate|clarify|polish)"
 )
+# the words that name the whole answer, or a part of it, to translate ("translate everything into Arabic",
+# "translate the whole thing into French", "translate the second paragraph into Arabic"): never a subject
+# ("the key findings on child marriage")
+_WHOLE = (
+    r"(?:the|this|that|these|those|your|my|it|them|all|of|everything|whole|entire|full|complete|thing|things|"
+    r"text|texts|answer|answers|results?|findings|above|paragraphs?|summary|response|reply|draft|version|table|"
+    r"list|points|bullets|part|section|sentences?|lines|first|second|third|last|previous|same)\b"
+)
 _ANSWER_NAMED = (
     r"(?:the|your|this|that|my)\s+(?:(?:previous|last|earlier|whole|above|first|same)\s+)?(?:answer|"
     r"paragraphs?|summary|response|reply|draft|text|table|list)\b"
@@ -280,13 +289,15 @@ _ANSWER_NAMED = (
 # answer", "the same answer", "rewrite it", "rephrase for donors"; a verb that opens the question with the
 # answer or "it" ("revise the paragraph", "summarise it", "can you expand on this?", "convert it to a table",
 # "make it more detailed", "put it in a table", "write it again for donors", "break it down by sex"),
-# "translate" opening it alone or with a language only ("translate into Arabic please", never "translate the
-# findings on child marriage into Arabic": a question of its own) or "elaborate"; "give more details", "go
-# into more detail", "add ... to the paragraph"; and a short question that is only a rework's form ("in
-# Arabic please", "and in French?", "shorter please", "a shorter version"). The verb may open a clause after
-# praise or "but" ("this is good but can you shorten it", "good job, now rewrite it for girls"). Never a verb
-# inside a question of its own ("how did families adjust to the crisis?", "is there an update this year?"),
-# nor "make it" without a length or form ("what would make it easier for girls to stay in school?")
+# "translate" opening it alone, with a language, or with the words of the answer and a language ("translate
+# into Arabic please", "translate everything into Arabic"; never "translate the findings on child marriage
+# into Arabic": a question of its own) or "elaborate"; "give more details", "go into more detail", "add ...
+# to the paragraph"; and a short question that is only a rework's form ("in Arabic please", "and in
+# French?", "shorter please", "a shorter version"). The verb may open a clause after a mark, a judgement of
+# the answer or praise ("it is too long can you shorten it", "this is good but can you shorten it", "good job,
+# now rewrite it for girls"). Never a verb inside a question of its own ("how did families adjust to the
+# crisis?", "is there an update this year?", "child labour in Akkar and translate it to Arabic"), nor "make
+# it" without a length or form ("what would make it easier for girls to stay in school?")
 REWORKS = (
     r"\b(?:text|answer|paragraph|summary|response|list|table)\s+above\b|\bthe\s+above\b|"
     r"\babove\s+(?:text|answer|paragraph|summary|response|list|table)\b|"
@@ -294,6 +305,7 @@ REWORKS = (
     r"\bsame\s+(?:answer|text|paragraph|summary|response)\b|"
     r"\b(?:redo|rework|rewrite|rephrase|reword)\b|"
     rf"{_OPENS}(?:{_REWORK_VERBS}(?:\s+(?:more|further|a\s+bit|a\s+little))?(?:\s+(?:on|upon))?\s+{_ANSWER}\b|"
+    rf"translate(?:\s+{_WHOLE})+\s+(?:in|into|to)\s+{_LANGUAGE}\b|"
     rf"translate(?:\s+(?:(?:in|into|to)\s+)?{_LANGUAGE})?(?:\s+(?:please|pls|plz|too|now|instead|for\s+(?:me|us)))?"
     r"(?=\W*$)|elaborate(?:\s+(?:more|further|a\s+bit))?(?=\W*$))|"
     rf"{_OPENS}make\s+{_ANSWER}\s+(?:a\s+(?:bit|little)\s+|more\s+|much\s+|even\s+|less\s+)?(?:shorter|longer|"
@@ -330,26 +342,39 @@ REFERS = re.compile(
     + r"|\b(?:do|redo|repeat)\s+(?:it|this|that|the\s+same)\b|\bsame\s+(?:for|in|with|but|thing)\b|"
     + SWITCHES
     + r"|^\W*(?:and|now|and\s+now)\s+(?:for|in|at|among|by|on|with|without|from|across|the\s+same)\b"
-    # a lens on the earlier answer's subject ("now focus on refugees", "with a focus on refugees")
+    # a lens on the earlier answer's subject, the whole question ("now focus on refugees", "with a focus on
+    # refugees please"), never one that opens a question of its own ("Focusing on Akkar, what are the main
+    # barriers?", "focus on child labour in the Bekaa: what do the studies say?")
     + r"|^\W*(?:(?:and|now|so|then|but|ok|okay)\s+)*(?:(?:with|through|using)\s+(?:a|an|the|more)\s+"
     r"(?:[\w-]+\s+)?)?(?:focus(?:ed|es|ing|sed|sing)?|lens|lence)\s+(?:more\s+|only\s+|mainly\s+|"
-    r"specifically\s+|particularly\s+|especially\s+)?(?:on|upon)\b",
+    r"specifically\s+|particularly\s+|especially\s+)?(?:on|upon)\b"
+    r"(?![^.?!:;,]*[.?!:;,]\W*\w)(?![^.?!:;,]*\b(?:what|how|why)\b)",
     re.IGNORECASE,
 )
 REWORKS_ANSWER = re.compile(REWORKS, re.IGNORECASE)
+# the start of a follow-up that adds to the earlier answer ("and the trend?", "and by nationality?", "and for
+# girls?"): an angle on the earlier subject while findings elsewhere join them. Not "and what about child
+# marriage?", which asks what "what about child marriage?" asks
+ADDS = re.compile(r"^\W*and\b(?!\W+(?:what|how)\s+about\b)", re.IGNORECASE)
 # thanks or praise around a question ("Thanks, what about girls?", "great! and for boys?", "ok now for all
-# gov", "... for all gov, thanks", "this is good but can you shorten it", "good job, now rewrite it for
-# girls", "that's great can you make it shorter"): never a word to search, nor in the way of the cues that
-# open a question. Taken out only before a mark, a dash, another such word or a cue: "good practices",
-# "great expectations of parents" and "perfect attendance" keep their word
+# gov", "... for all gov, thanks", "this is good but can you shorten it", "the paragraph is good but can you
+# shorten it", "i like it but can you shorten it", "good job, now rewrite it for girls", "that's great can you
+# make it shorter"): never a word to search, nor in the way of the cues that open a question. Taken out only
+# before a mark, a dash, another such word or a cue: "good practices", "great expectations of parents",
+# "perfect attendance" and "I like this school" keep their word
 _PRAISE = (
-    r"(?:(?:this|that|it)(?:\s+is|\s+was|['’]s|\s+looks|\s+sounds|\s+reads)\s+(?:all\s+)?|(?:looks|sounds)\s+)?"
+    r"(?:(?:this|that|it|(?:the|your|this|that)\s+(?:answer|paragraph|text|summary|response|draft|version|table|"
+    r"list))(?:\s+is|\s+was|['’]s|\s+looks|\s+sounds|\s+reads)\s+(?:all\s+)?|(?:looks|sounds)\s+)?"
     r"(?:(?:very|really|so|quite|pretty)\s+)?(?:great|perfect|good|nice|excellent|awesome|super|wonderful|"
     r"brilliant|amazing|helpful|useful|fine)(?:\s+(?:job|work|answer|one))?"
 )
+_LIKED = (
+    r"(?:i|we)\s+(?:really\s+|do\s+)?(?:like|love|liked|loved|appreciate)\s+(?:it|this|that|(?:the|your)\s+"
+    r"(?:answer|paragraph|text|summary|response|draft|version|table|list))"
+)
 _THANKS = (
     r"(?:thanks?(?:\s+you)?(?:\s+(?:so|very)\s+much|\s+a\s+lot)?(?:\s+for\s+(?:that|this|it|the\s+\w+))?|thx|"
-    rf"{_PRAISE}|ok|okay|cool|alright|noted|got\s+it|well\s+done|sure|hi|hello|hey|please|pls|plz|kindly)"
+    rf"{_PRAISE}|{_LIKED}|ok|okay|cool|alright|noted|got\s+it|well\s+done|sure|hi|hello|hey|please|pls|plz|kindly)"
 )
 COURTESY = re.compile(
     rf"^\W*(?:{_THANKS}(?:\s*[,.!;:]+\s*|\s+[\u2013\u2014-]+\s+|\s+(?=(?:{_THANKS}|what|how|now|then|so|can|could|"
@@ -863,13 +888,12 @@ class Picked:
 
 def _searchable(text: str) -> str:
     """A question's words worth searching: no thanks or praise around it (:data:`COURTESY`), no placeholder of
-    a cleaning ("[name withheld]"), e-mail address (one written out too: "x at example dot org"), link or
-    phone number, so that none becomes the search words "name" or "withheld", nor a person's name."""
-    text = COURTESY.sub(" ", text or "").strip()
+    a cleaning ("[name withheld]"), e-mail address (one written out too, as the question kept loses it: "x at
+    example dot org", "X AT EXAMPLE.ORG", :func:`neurodb.km.privacy.without_addresses`), link or phone number,
+    so that none becomes the search words "name" or "withheld", nor a person's name."""
+    text = COURTESY.sub(" ", privacy.without_addresses(text)).strip()
     for placeholder in PLACEHOLDERS:
         text = text.replace(placeholder, " ")
-    text = watch_people.EMAIL.sub(" ", text)
-    text = watch_people.SPELLED_EMAIL.sub(" ", text)
     text = redact.LINK.sub(" ", text)
     text = watch_people.PREFIXED_PHONE.sub(" ", text)
     return watch_people.INTL_PHONE.sub(" ", text)
@@ -964,15 +988,22 @@ _DATE = (
     r"aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+)?"
 )
 # an event a year names ("the 2019 crisis", "2020 Beirut port explosion", "the 2019 financial and economic
-# crisis", "the 2020 port of Beirut explosion"): up to three words that are no English stop word, each maybe
-# after "and", "&", "of" or "the", then the event ("the 2024 out of school figures" names none)
+# crisis", "the 2020 port of Beirut explosion"): up to three words that are no English stop word nor a word
+# that places the year at a time ("amid", "despite", "following": "in 2024 amid the escalation" is the year
+# 2024), each maybe after "and", "&" or "of", then the event ("the 2024 out of school figures" names none)
 _EVENTS = (
     r"(?:crisis|crises|explosions?|blasts?|wars?|escalations?|conflicts?|hostilities|collapse|devaluation|"
     r"earthquakes?|outbreaks?|epidemics?|pandemics?|lockdowns?|elections?|protests?|uprisings?|revolutions?|"
     r"invasions?|airstrikes?|bombings?|ceasefires?|floods?|strikes?)"
 )
-_NOT_STOP = "|".join(sorted(search.ENGLISH_STOP, key=len, reverse=True))
-_EVENT = rf"(?:\s+(?:(?:(?:and|&|of|the)\s+)?(?!(?:{_NOT_STOP})\b)[\w'’-]+\s+){{0,3}}{_EVENTS}(?![\w-]))"
+_AT_A_TIME = (
+    "amid amidst despite following given throughout within across among amongst toward towards beyond since"
+).split()
+_NOT_STOP = "|".join(sorted({*search.ENGLISH_STOP, *_AT_A_TIME}, key=len, reverse=True))
+_EVENT = rf"(?:\s+(?:(?:(?:and|&|of)\s+)?(?!(?:{_NOT_STOP})\b)[\w'’-]+\s+){{0,3}}{_EVENTS}(?![\w-]))"
+# what takes the place of a year that only ranks: no event's words cross it ("in 2025 following the 2024 war"
+# is the year 2025), and it is a space once the time frame is read
+_RANKED = "\x00"
 # what a year compared with qualifies ("compared with the 2019 rate")
 _DATA = (
     r"(?:data|figures?|numbers?|statistics|stats|results?|estimates?|rates?|reports?|surveys?|"
@@ -1137,12 +1168,13 @@ def time_frame(text: str, on: datetime.date) -> TimeFrame:
             if found:
                 spans.extend(found)
                 kinds.add(kind)
-            return " "
+            return f" {_RANKED} " if kind in NO_YEAR else " "
 
         text = pattern.sub(one, text)
     if spans and compared:  # "in 2025 than in 2019": the year compared with is read too
         spans += [(y, y) for y in compared if (y, y) not in spans]
         kinds.add("compared")
+    text = text.replace(_RANKED, " ")
     return TimeFrame(text=text, spans=spans, kinds=kinds, ranks=ranks, compared=compared)
 
 
@@ -1292,9 +1324,13 @@ class OwnTextsHold(Func):
     output_field = BooleanField()
     LEXEME = r"('(?:[^']|'')*')"  # a word of a query's text: 'mount' <-> 'lebanon'
 
-    def __init__(self, alternatives: list[str]):
+    def __init__(self, alternatives: list[str], *, starts: bool = False):
+        """``starts``: every word of an alternative, in any order, or a word of the index that starts with it
+        ("bint" in "bint jbeil-marjayoun", "metn" in "metn/baabda" as an earlier load wrote it): never fewer
+        findings than a phrase, for a check of the texts to follow."""
         super().__init__(F("own_vector"), *[Value(alt) for alt in alternatives])
-        self.plain = [alt.isalnum() for alt in alternatives]
+        self.plain = [starts or alt.isalnum() for alt in alternatives]
+        self.weights = r"\1:*ABC" if starts else r"\1:ABC"
 
     def as_sql(self, compiler, connection, **extra):
         vector, params = compiler.compile(self.source_expressions[0])
@@ -1308,7 +1344,7 @@ class OwnTextsHold(Func):
         return f"({vector} @@ regexp_replace(({joined})::text, %s, %s, 'g')::tsquery)", [
             *params,
             self.LEXEME,
-            r"\1:ABC",
+            self.weights,
         ]
 
 
@@ -1354,34 +1390,57 @@ def _english(group: list[str]) -> list[str]:
     return [alt for alt in group if not search.collapses(alt)]
 
 
+@cache
+def _other_words(spelling: str) -> list[str]:
+    """The other words of the longer names that hold ``spelling`` (:func:`neurodb.km.places.shadows`: "bint"
+    for "jbeil", "bekaa" and "metn" for "north")."""
+    names = places.shadows(spelling)
+    return sorted({w for name in names for w in re.split(r"[\s-]+", name)} - {spelling})
+
+
 def hit(group: list[str]) -> Q:
     """A finding's own texts hold one of ``group``'s alternatives (:class:`OwnTextsHold`), or a phrase that
     loses a stop word in English as written. A place's spelling that is a word of another governorate's place
     ("jbeil" in "Bint Jbeil", :func:`neurodb.km.places.shadows`) counts only where a text writes it on its own
     (:func:`neurodb.km.places.standalone`): "the Bekaa and North Bekaa" and "the North, Bekaa and Akkar" name
     the Bekaa, "North Bekaa" alone does not; and that other place's name ("North Bekaa") counts only as
-    written, a space or one hyphen between its words (:func:`neurodb.km.places.as_written`). The index is
-    read first: the texts are read only where it holds the word and one of the longer names (else the word
-    is on its own), or the longer name."""
+    written, a space or one hyphen or dash between its words (:func:`neurodb.km.places.as_written`). The index
+    is read first: the texts are read only where it holds the word and a word that starts as another word of
+    a longer name that holds it does ("bint" for "jbeil", in "Bint Jbeil-based" too; else the word is on its
+    own), or every word of a longer name."""
     english = _english(group)
     longer = [alt for alt in english if alt in places.longer_names()]
     shadowed = [alt for alt in english if places.shadows(alt)]
     plain = [alt for alt in english if alt not in longer and alt not in shadowed]
     found = [Q(OwnTextsHold(plain))] if plain else []
     if shadowed:
-        names = sorted({name for alt in shadowed for name in places.shadows(alt)})
         alone = Q(OwnTextsWrite(*places.standalone(tuple(shadowed))))
-        found.append(Q(OwnTextsHold(shadowed)) & (~Q(OwnTextsHold(names)) | alone))
+        found += [
+            Q(OwnTextsHold([alt])) & ~Q(OwnTextsHold(_other_words(alt), starts=True)) for alt in shadowed
+        ]
+        found.append(Q(OwnTextsHold(shadowed)) & alone)
     if longer:
-        found.append(Q(OwnTextsHold(longer)) & Q(OwnTextsWrite(places.as_written(tuple(longer)))))
+        found.append(
+            Q(OwnTextsHold(longer, starts=True)) & Q(OwnTextsWrite(places.as_written(tuple(longer))))
+        )
     return reduce(or_, found + _phrases_as_written(group))
 
 
 def _rough(groups: list[list[str]]) -> Q:
-    """The findings whose ``own_vector`` holds one of ``groups``' alternatives (its index), or a phrase as
-    written: a superset of those :func:`hit` keeps."""
+    """The findings whose ``own_vector`` holds one of ``groups``' alternatives (its index), a longer place's
+    name by words that start as its words do (as :func:`hit` reads it: "Bint Jbeil-based" too), or a phrase
+    as written: a superset of those :func:`hit` keeps."""
     english = [alt for g in groups for alt in _english(g)]
-    found = [Q(own_vector=_own_query(english))] if english else []
+    longer = places.longer_names()
+    queries = [_own_query([alt for alt in english if alt not in longer])] if english else []
+    queries += [
+        SearchQuery(
+            " & ".join(f"{w}:*" for w in re.findall(r"[^\W\d_]+", alt)), search_type="raw", config="english"
+        )
+        for alt in english
+        if alt in longer
+    ]
+    found = [Q(own_vector=reduce(or_, queries))] if queries else []
     return reduce(or_, found + [q for g in groups for q in _phrases_as_written(g)])
 
 
@@ -1702,6 +1761,7 @@ class Asked:
     marks: list[str]
     words: int
     reworks: bool = False  # it asks to rework the earlier answer ("adjust the text above")
+    adds: bool = False  # it adds to the earlier answer ("and the trend?": :data:`ADDS`)
     # its words as a follow-up reads them: never the answer's language, length, tone or readers ("the same in
     # Arabic", "I need it shorter": :data:`FOLLOW_UP_REQUEST`)
     follow_groups: list[list[str]] = field(default_factory=list)
@@ -1758,6 +1818,7 @@ def understand(text: str, typed: str, shapes: list[str] | tuple[str, ...] = ()) 
         marks=boosted(text),
         words=len((typed or "").split()),
         reworks=reworks,
+        adds=bool(ADDS.search(text)),
         follow_groups=follow_groups,
     )
 
@@ -1892,11 +1953,12 @@ def retrieve(
     subject: list[list[str]] = []
     # a follow-up's own words on a subject of their own ("what about child marriage?", "child marriage",
     # "and for child labour?", "what about ECD?"): never a rework's, nor a group of people's ("and for
-    # girls?", "what about refugees?"), which stay angles on the earlier subject
+    # girls?", "what about refugees?"), which stay angles on the earlier subject, nor the earlier angles of a
+    # follow-up with no word of its own ("and in the North?", "can u do it for all lebanon?")
     new_subject = False
     if follow_up:  # the earlier subject, angles, places and years, unless the question names its own
         own_angles = [g for g in current if g != breakdown]
-        new_subject = not (own.reworks or _people_only(own_angles))
+        new_subject = bool(own_angles) and not (own.reworks or _people_only(own_angles))
         angles = own_angles + [g for g in before.angles if g not in own_angles]
         subject = [g for g in before.subject if g not in angles]
         if subject or len(angles) > len(own_angles):
@@ -2002,16 +2064,18 @@ def retrieve(
             and len(angles_held) < len(searched)
             and not picked.matched
             and (
-                new_subject
+                (new_subject and not own.adds)
                 or own.reworks
                 or not _joined_elsewhere(place, base, searched, boost, by_governorate, shape, ask_for)
             )
         ):
-            # no finding joins the follow-up to the earlier subject: its angles are searched alone (its own
-            # words, and those its earlier follow-ups searched alone too); on a subject of its own ("what
-            # about child marriage?", "child marriage" after out of school children), they are the next
-            # follow-up's subject (on its row). A rework or a group of people ("and for girls?", "what about
-            # refugees?") stays an angle on the earlier subject
+            # no finding joins the follow-up to the earlier subject (an addition, "and the trend?", or a group
+            # of people: none elsewhere either): its angles are searched alone (its own words, and those its
+            # earlier follow-ups searched alone too); on a subject of its own ("what about child marriage?",
+            # "child marriage" after out of school children, "and the trend?" when no finding anywhere gives
+            # the trend of out of school children), they are the next follow-up's subject (on its row). A
+            # rework or a group of people ("and for girls?", "what about refugees?") stays an angle on the
+            # earlier subject
             searched, shape = angles_held, {}  # the passes below search them alone too
             if not run(*quorum(base, searched, boost, required=required, **ask_for)) and len(searched) == 2:
                 either = [g for g in searched if g != adjective]  # never "national" alone
@@ -2104,11 +2168,11 @@ def _joined_elsewhere(
     shape: dict[str, Any],
     ask_for: dict[str, Any],
 ) -> bool:
-    """Whether a follow-up on a group of people that no finding of the place joins to the earlier subject is
-    an angle on that subject ("and for girls?", "for girls", "what about refugees?") that findings elsewhere
-    join to it: the subject is then kept and the place widened (never girls on any subject). Not asked of a
-    new subject ("what about child marriage?", "child marriage") nor of a rework, which search their own words
-    in the place."""
+    """Whether a follow-up on a group of people, or an addition ("and the trend?", "and by nationality?"),
+    that no finding of the place joins to the earlier subject is an angle on that subject ("and for girls?",
+    "for girls", "what about refugees?") that findings elsewhere join to it: the subject is then kept and the
+    place widened (never girls, or the trend of rents, on any subject). Not asked of a new subject ("what
+    about child marriage?", "child marriage") nor of a rework, which search their own words in the place."""
     if not place:
         return False
     return quorum(base, searched, boost, required=by_governorate, **shape, **ask_for)[0].exists()
@@ -2399,13 +2463,18 @@ NOT_A_CLAIM = re.compile(
     r"^\W*what\s+(?:is|are)\s+missing\b|"
     rf"\b(?:is|are|was|were)\s+missing(?:\s+(?:from|in)\s+(?:the|these|all)\s+{_SOURCE}"
     r"(?:\s+(?:read|here|cited|used|available)){0,2}|\s+here)?\W*$|"
-    # data missing or not available, whatever follows ("Figures by disability are missing for the South",
-    # "Data on children with disabilities are not available for Nabatieh"): data the subject, maybe with words
-    # that qualify it, never a clause ("Data show that girls are missing from school")
+    # data missing or not available, and where or for whom ("Figures by disability are missing for the South
+    # and for Nabatieh", "Data on children with disabilities are not available for Nabatieh"): data the
+    # subject, maybe with words that qualify it, never a clause ("Data show that girls are missing from
+    # school"), and nothing after it but the words that qualify it: never a figure (but a year) or a clause of
+    # its own (", where 60% of girls left school", ", but 45% of them", "while 90% of girls")
     rf"\b{_LACKING}(?:\s+(?:by|on|for|of|about|in|at|among|from|with|disaggregated|broken\s+down)\b"
     r"(?:\s+(?!(?:that|which|who|whom|whose|show|shows|showed|shown|suggest|suggests|suggested|indicate|"
     r"indicates|indicated|find|finds|found|reveal|reveals|revealed|confirm|confirms|confirmed)\b)[\w-]+){0,6})?"
-    r"\s+(?:is|are|was|were)\s+(?:missing|lacking|unavailable|not\s+available|not\s+reported|not\s+given)\b|"
+    r"\s+(?:is|are|was|were)\s+(?:missing|lacking|unavailable|not\s+available|not\s+reported|not\s+given)\b"
+    r"(?![^.!?]*(?:%|(?<![\d.,])(?!(?:19|20)\d\d\b)\d|[,;:]\s*(?:where|which|who|but|while|whereas|although|"
+    r"though|yet|so)\b|[,;:]\s*and\s+(?!(?:for|in|on|by|at|among|from|across|of|to)\b)|"
+    r"\b(?:but|while|whereas|although|though|yet)\b))|"
     # what the findings lack ("The findings hold no figures by sex", "None of the findings gives ...")
     r"\b(?:hold|holds|give|gives|report|reports|include|includes|provide|provides|offer|offers|contain|"
     r"contains)\s+no\b|"
@@ -2480,6 +2549,8 @@ QUOTED = re.compile(r"^(?:[ \t]*>)*[ \t]*")
 HEAD_MARK = re.compile(r"^(?:[ \t]*(?:>|(?:[-*+]|\d+\.)(?=[ \t])))*[ \t]*")
 TABLE_TAG = re.compile(r"<(/?)table\b[^>]*>", re.IGNORECASE)
 ROW_HTML = re.compile(r"<tr\b[^>]*>.*?</tr>", re.DOTALL)
+# a link to a finding as rendered (never the words of one written in a cell: 'href="/km/findings/')
+FINDING_LINK = re.compile(r'<a\s[^>]*\bhref="/km/findings/')
 # a row of an HTML table as written, to the next row or the end of its table (a row left open too)
 RAW_ROW = re.compile(r"<tr\b.*?(?=<tr\b|</table|\Z)", re.DOTALL | re.IGNORECASE)
 
@@ -2661,6 +2732,12 @@ def _bare(line: str) -> str:
     return QUOTED.sub("", line, count=1)
 
 
+def _blank(line: str) -> bool:
+    """Whether ``line`` is blank as Python-Markdown reads it: nothing but spaces and tabs (after a quote's
+    marks). A line of no-break spaces is not."""
+    return not _bare(line).strip(" \t")
+
+
 def _table_blocks(lines: list[str]) -> Iterator[tuple[int, int, bool]]:
     """Where the markdown tables of ``lines`` are, as Python-Markdown reads them (:func:`_starts_table`; the
     first line in a quote or on a list item too): the index of each one's header, the index after its block
@@ -2670,7 +2747,7 @@ def _table_blocks(lines: list[str]) -> Iterator[tuple[int, int, bool]]:
     at = 0
     while at + 1 < len(lines):
         end = at + 2
-        while end < len(lines) and _bare(lines[end]).strip():
+        while end < len(lines) and not _blank(lines[end]):
             end += 1
         rows = [_bare(line) for line in lines[at + 2 : end]]
         head = HEAD_MARK.sub("", lines[at], count=1)
@@ -2736,9 +2813,9 @@ def _table_rows(text: str, keep: Callable[[str], bool]) -> tuple[str, int]:
         out += lines[at:start]
         body = lines[start + 2 : end]
         kept = [row for row in body if keep(row) or not (table or _piped(row))]
-        removed += len(body) - len(kept)
+        removed += sum(1 for row in body if row.strip() and row not in kept)  # a row of no-break spaces: none
         if any(table or _piped(row) for row in kept):
-            if out and _bare(out[-1]).strip():
+            if out and not _blank(out[-1]):
                 out.append("")
             out += [lines[start], lines[start + 1], *kept]
         else:  # no row left: the header and the rule go too (a paragraph's lines with no pipe stay)
@@ -2794,7 +2871,7 @@ def _unlinked_rows(html: str) -> tuple[str, int, list[tuple[str, bool]]]:
         whole = html[start:end]
         rows = ROW_HTML.findall(whole)
         nested = len(TABLE_TAG.findall(whole)) > 2
-        kept = [] if nested else [row for row in rows[1:] if 'href="/km/findings/' in row]
+        kept = [] if nested else [row for row in rows[1:] if FINDING_LINK.search(row)]
         if kept:
             for row in rows[1:]:
                 if row not in kept:
@@ -2830,7 +2907,7 @@ def _without_rows(text: str, gone: list[tuple[str, bool]]) -> str:
             )
             if found is not None:
                 end = found + 1
-                while whole and end < len(lines) and _bare(lines[end]).strip():
+                while whole and end < len(lines) and not _blank(lines[end]):
                     end += 1
                 dropped.update(range(found, end))
                 at = end
@@ -2882,7 +2959,8 @@ def finish(
     what is shown: :func:`_unlinked_rows`); an HTML table is taken out whole. The answer kept (copied, and
     sent again for a follow-up to rework) is the answer shown. ``own``: the surnames of the read documents'
     own authors."""
-    text = privacy.for_ai(answer or "", people, own)
+    # lines as markdown reads them: a carriage return alone breaks a line too
+    text = privacy.for_ai((answer or "").replace("\r\n", "\n").replace("\r", "\n"), people, own)
     if privacy.leftover(text, people):
         return Checked(withheld=True)
     text = text.replace("](", "] (")

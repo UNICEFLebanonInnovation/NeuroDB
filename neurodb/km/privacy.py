@@ -40,6 +40,8 @@ from dataclasses import dataclass, field
 from neurodb.watch import people as watch_people
 from neurodb.watch import redact
 
+from .search import ENGLISH_STOP
+
 NAME_WITHHELD = watch_people.NAME_WITHHELD
 EMAIL_WITHHELD = watch_people.EMAIL_WITHHELD
 LINK_WITHHELD = redact.LINK_WITHHELD
@@ -357,9 +359,10 @@ def _speakers(text: str) -> str:
 OWN = re.compile(rf"(?:\b[A-Z]\.\s*)?(?<![\w'’\-])([{_CAP}][\w\-]*)(?=(?:['’]s)?(?![\w\-]))")
 
 
-def _own(text: str, own: frozenset[str]) -> str:
+def _own(text: str, own: frozenset[str], ordinary: frozenset[str] = frozenset()) -> str:
     """Step 7: the document's own authors by their surname ("J. Doe", "Doe's", "the Doe-led survey",
-    "Doe2019"), withheld."""
+    "Doe2019", "Doe-2019"), withheld; and in a word joined by digits or "_" in any case ("LCRP_Doe_2019",
+    "survey_doe"), but a surname the texts also write as an ordinary word (``ordinary``) in lower case."""
     if not own:
         return text
 
@@ -367,29 +370,49 @@ def _own(text: str, own: frozenset[str]) -> str:
         word = match.group(1)
         if fold(word) in own:
             return NAME_WITHHELD
-        head = _hyphen_head(word, own) or _glued_head(word, own)
-        return NAME_WITHHELD + word[head:] if head else match.group(0)
+        head = _hyphen_head(word, own)
+        if head:
+            return NAME_WITHHELD + word[head:]
+        return _glued(word, own) or match.group(0)
 
-    return OWN.sub(one, text)
+    text = OWN.sub(one, text)
+    lower = own - ordinary
+    if not lower:
+        return text
+    return _GLUED_WORD.sub(lambda match: _glued(match.group(1), lower) or match.group(0), text)
 
 
-_LEADING_LETTERS = re.compile(r"[^\W\d_]+(?=[\d_])")
+# a word that letters and digits or "_" make ("LCRP_Doe_2019", "survey_doe", "doe2019"), with an initial
+# before it ("j.doe2019"): one of them may be a surname written in a file's name or a citation's key
+_GLUED_WORD = re.compile(r"(?:(?<![\w.])[A-Za-z]\.\s*)?(?<![\w'’\-])((?=[\w\-]*[\d_])[\w\-]*[^\W\d_][\w\-]*)")
+_RUN = re.compile(r"[^\W\d_]+")
 
 
-def _glued_head(word: str, surnames: frozenset[str]) -> int:
-    """The length of a surname of ``surnames`` that starts ``word`` before a digit or "_" ("Doe2019",
-    "doe_survey": the "2019" or "_survey" stays), or 0."""
-    head = _LEADING_LETTERS.match(word)
-    return head.end() if head and fold(head.group()) in surnames else 0
+def _glued(word: str, surnames: frozenset[str]) -> str:
+    """``word`` with each run of its letters that is a surname of ``surnames`` withheld, when digits or "_"
+    join it to the rest ("Doe2019", "LCRP_Doe_2019", "doe_survey", "doe2019doe"); "" when it holds none."""
+    if not re.search(r"[\d_]", word):
+        return ""
+    found = False
+
+    def run(match: re.Match) -> str:
+        nonlocal found
+        if fold(match.group()) in surnames:
+            found = True
+            return NAME_WITHHELD
+        return match.group()
+
+    out = _RUN.sub(run, word)
+    return out if found else ""
 
 
 def _hyphen_head(word: str, surnames: frozenset[str]) -> int:
     """The length of a surname of ``surnames`` that starts ``word`` before a hyphen and a word in lower case
-    ("Doe-led", "Doe-Roe-based": the "-led" or "-based" stays), or 0."""
+    or a number ("Doe-led", "Doe-Roe-based", "Doe-2019": the "-led", "-based" or "-2019" stays), or 0."""
     parts = word.split("-")
     for n in range(len(parts) - 1, 0, -1):
         head = "-".join(parts[:n])
-        if parts[n][:1].islower() and fold(head) in surnames:
+        if (parts[n][:1].islower() or parts[n][:1].isdigit()) and fold(head) in surnames:
             return len(head)
     return 0
 
@@ -651,22 +674,77 @@ def _shapes(text: str, people: People, words: list[str]) -> str:
 
 _AT_SIGNS = ("@", "＠", "﹫")
 # what every spelled-out address holds: an "at" (or an at sign) and a domain's ending after a dot ("x at
-# example dot org", "x [at] example.org", "x [at] example [dot] org"): a text without both is not searched for
-# one (most texts)
+# example dot org", "x [at] example.org", "x [ at ] example [ dot ] org", "x -at- example -dot- org"): a text
+# without both is not searched for one (most texts)
 _SPELLED_AT = re.compile(r"\bat\b|[@＠﹫]", re.IGNORECASE)
 _SPELLED_ENDING = re.compile(
-    r"(?:\.|\bdot\b[\]\)\}]?|\[\.\]|\(\.\)|\{\.\})\s*"
+    r"(?:\.|\bdot\b\s*[\]\)\}>-]?|\[\.\]|\(\.\)|\{\.\})\s*"
     r"(?:org|com|net|int|gov|edu|lb|fr|uk|de|ch|ca|ae|sa|qa|jo|eg|nl|se|au|info|biz|ngo|io|co)\b",
     re.IGNORECASE,
 )
+_AT_WORD = r"(?:\s*(?:\[\s*at\s*\]|\(\s*at\s*\)|\{\s*at\s*\}|<\s*at\s*>|-at-)\s*|\s+at\s+)"
+# a word and "at" before a domain of any case or ending ("x_y at Example.Org", "X AT EXAMPLE.ORG", "x_y at
+# example.invalid", "x at example. org"): an address when the word is its name (:func:`_named`). Never a word
+# that ends with a full stop ("e.g. at example.org") nor a number ("4.2 at example.org")
+_WRITTEN_AT = re.compile(
+    rf"(?<![\w.+'-])(?P<local>(?=[\w.+'-]*[^\W\d_])[\w+'-](?:[\w.+'-]*[\w+'-])?)(?P<at>{_AT_WORD})"
+    r"(?P<domain>(?=[\w-]*[^\W\d_])[\w-]+(?:\.[\w-]+)*\.[^\W\d_]{2,24}(?![\w-])"
+    r"|[\w-]+\.\s(?-i:org|com|gov|edu|int)\b)",
+    re.IGNORECASE,
+)
+# what :data:`_WRITTEN_AT` needs, besides "at": a dot right before letters, or before a space and an ending
+# (most texts have none: "at school", "at 45.5%", "at home. The")
+_DOTTED = re.compile(r"\.(?:[^\W\d_]{2}|\s(?:org|com|gov|edu|int)\b)")
+_LOCAL_WORD = re.compile(rf"([^\W\d_]+){_AT_WORD}", re.IGNORECASE)  # an address's name of one plain word
+# the words a question writes before "at" and a domain that name no one ("children at example.org")
+_ORDINARY = watch_people.COMMON_WORDS | ENGLISH_STOP
+# letters and marks that look like those of an address in what a person types ("ａｔ", "example．org", the
+# Cyrillic "а" of "аt"): read as the plain ones, so that an address written with them is found as it reads
+_LOOKALIKES = str.maketrans(
+    {chr(0xFF01 + n): chr(0x21 + n) for n in range(94)}
+    | dict(zip("\u3000\u2024\ufe52\u3002\uff61аАеЕоОтТԁαοΟτ", " ....aAeEoOtTdaoOt", strict=True))
+)
 
 
-def _emails(text: str) -> str:
+def _named(local: str, at: str, typed: bool) -> bool:
+    """Whether ``local``, the word before "at" (``at``) and a domain, is an address's name: it holds a full
+    stop, "_", "+" or a digit, or it and "AT" are in capitals ("X AT EXAMPLE.ORG"); in a question
+    (``typed``), any word but a common one ("children at example.org" keeps "children")."""
+    if re.search(r"[._+\d]", local) or (local.isupper() and "AT" in at):
+        return True
+    return typed and fold(local) not in _ORDINARY
+
+
+def _emails(text: str, typed: bool = False) -> str:
+    """``text`` with its e-mail addresses withheld, written out too (:data:`watch_people.SPELLED_EMAIL`,
+    :data:`_WRITTEN_AT`). ``typed``: a question, where a common word before "at" keeps its place and the
+    domain is withheld as a link ("children at [link withheld]")."""
     if any(sign in text for sign in _AT_SIGNS):
         text = watch_people.EMAIL.sub(EMAIL_WITHHELD, text)
-    if _SPELLED_ENDING.search(text) and _SPELLED_AT.search(text):
-        text = watch_people.SPELLED_EMAIL.sub(EMAIL_WITHHELD, text)
-    return text
+    if not _SPELLED_AT.search(text):
+        return text
+
+    def spelled(match: re.Match) -> str:
+        word = _LOCAL_WORD.match(match.group(0)) if typed else None
+        if word and fold(word.group(1)) in _ORDINARY:
+            return f"{word.group(1)} at {LINK_WITHHELD}"
+        return EMAIL_WITHHELD
+
+    def written(match: re.Match) -> str:
+        if _named(match.group("local"), match.group("at"), typed):
+            return EMAIL_WITHHELD
+        return f"{match.group('local')} at {LINK_WITHHELD}" if typed else match.group(0)
+
+    if _SPELLED_ENDING.search(text):
+        text = watch_people.SPELLED_EMAIL.sub(spelled, text)
+    return _WRITTEN_AT.sub(written, text) if _DOTTED.search(text) else text
+
+
+def without_addresses(text: str) -> str:
+    """What a person typed (a question) as it is read for an address or a name: no character nobody sees
+    (:func:`neurodb.watch.people.visible`), the letters and marks that look like those of an address as the
+    plain ones (:data:`_LOOKALIKES`), and every e-mail address withheld, written out too (:func:`_emails`)."""
+    return _emails(watch_people.visible(text or "").translate(_LOOKALIKES), typed=True)
 
 
 def for_download(text: str, people: People = NOBODY, own: frozenset[str] = frozenset()) -> str:
@@ -735,7 +813,7 @@ def _people(text: str, people: People, own: frozenset[str]) -> str:
         text = watch_people.scrub(text, names=people.names)
         folded = _folded(text)
     if own and any(surname in folded for surname in own):
-        text = _own(text, own)
+        text = _own(text, own, people.ordinary)
     if not watch_people.TITLE_WORDS.isdisjoint(found):
         text = _titles(text)
     return _shapes(text, people, found)
@@ -789,10 +867,9 @@ def clean_question(question: str, people: People = NOBODY) -> str:
     rule (:func:`typed_for_ai`)."""
     from neurodb.fmm import privacy as fmm_privacy
 
-    # an address written out first, on the text as typed ("x at example.org", "x [at] example [dot] org"):
-    # the cleaning of links would otherwise take its domain only, and leave its name
-    question = _emails(watch_people.visible(question or ""))
-    return typed_for_ai(fmm_privacy.clean(question, QUESTION_CHARS)[0], people)
+    # an address written out first, on the text as typed ("x at example.org", "x [at] example [dot] org", "x
+    # at Example.Org"): the cleaning of links would otherwise take its domain only, and leave its name
+    return typed_for_ai(fmm_privacy.clean(without_addresses(question), QUESTION_CHARS)[0], people)
 
 
 def typed_for_ai(text: str, people: People = NOBODY) -> str:
@@ -839,8 +916,10 @@ def any_case(text: str, people: People = NOBODY) -> str:
         word = match.group(1)
         if fold(word) in words:
             return NAME_WITHHELD
-        head = _hyphen_head(word.lower(), words) or _glued_head(word, words)  # "doe-led", "doe2019"
-        return NAME_WITHHELD + word[head:] if head else match.group(0)
+        head = _hyphen_head(word.lower(), words)  # "doe-led", "doe-2019"
+        if head:
+            return NAME_WITHHELD + word[head:]
+        return _glued(word, words) or match.group(0)  # "doe2019", "lcrp_doe_2019", "survey_doe"
 
     return "".join(  # never inside a placeholder ("[name withheld]")
         part if part in _PLACEHOLDERS else _ANY_WORD.sub(one, part) for part in _PLACEHOLDER.split(text)

@@ -403,6 +403,19 @@ REWORKS = (
     # a population group as a lens
     "now focus on refugees",
     "with a focus on refugees",
+    "with a focus on refugees please",
+    # the whole answer to translate, in other words
+    "can you translate the whole thing into French",
+    "translate everything into Arabic",
+    "translate the entire text into Arabic",
+    "translate the full answer into Arabic",
+    "translate the second paragraph into Arabic",
+    "translate everything above into Arabic",
+    "translate the results into Arabic",
+    # praise of the answer by its name, then the rework
+    "the paragraph is good but can you shorten it",
+    "your answer is great but please make it shorter",
+    "i like it but can you shorten it",
 )
 # words of a rework, a language, a length or praise: never searched
 NOT_SEARCHED = {"arabic", "french", "shorter", "longer", "long", "good", "great", "nice", "job", "fine"}
@@ -430,6 +443,110 @@ def test_a_rework_with_no_word_of_its_own_is_answered_from_q2(client_viewer, ai,
     assert row.status == "answered" and row.read[0] == "TST-0002-F00002"
     assert "No finding" not in final["meta"]
     assert f"Places from your earlier question: {SOUTH}." in final["meta"] and KEPT in final["meta"]
+
+
+# a question of its own after Q2, whatever request ends it ("and break it down by governorate", "and translate
+# it to arabic", "then make it shorter") or lens opens it ("Focusing on Akkar, what ...?"): never a follow-up
+# of Q2, its years and findings not carried
+OWN_AFTER_Q2 = (
+    "give me the number of out of school children in lebanon and break it down by governorate",
+    "number of out of school children per governorate and put them in a table",
+    "i need a paragraph describing the situation of children in Akkar in 2024 and translate it to arabic",
+    "tell me about out of school children in the North and then summarise it in 3 bullet points",
+    "what are the risks for adolescent girls in Akkar and can you give more details on child marriage?",
+    "out of school children in Bekaa in 2024 and please give more details on education",
+    "tell me about child labour in Tripoli and go into more detail on agriculture",
+    "number of out of school children in all governorates then make it shorter",
+    "what are the causes of child labour in Akkar and please summarise them in 3 bullet points",
+    "Focusing on Akkar, what are the main barriers to education for children?",
+    "focus on child labour in the Bekaa: what do the studies say?",
+    "with a focus on adolescents, what are the main protection risks in Beirut?",
+    "lens on disability: how many children with disabilities attend school in the South?",
+)
+
+
+@pytest.mark.parametrize("question", OWN_AFTER_Q2)
+def test_a_question_of_its_own_after_q2_is_no_follow_up(ai, today, question):  # noqa: F811
+    factory.load(build(DOCS))
+    picked = _picked(question, earlier=[Q2_TURN])
+    assert not picked.follow_up and picked.kept == [] and picked.cited_again == 0
+    assert not {"TST-0002-F00002", "TST-0002-F00003", "TST-0002-F00005"} <= {
+        f.finding_id for f in picked.findings
+    }
+
+
+def test_a_question_of_its_own_after_q2_reads_every_year(client_viewer, ai, today):  # noqa: F811
+    factory.load(
+        build([*DOCS, ("2021", ["In Akkar, barriers to education for children included distance."])])
+    )
+    conversation = uuid.uuid4()
+    ai([answer("Fake [TST-0002-F00002].") for _n in range(2)])
+    done(post(client_viewer, Q2, conversation=conversation))
+    final = done(post(client_viewer, OWN_AFTER_Q2[9], conversation=conversation))
+    row = KMQuestion.objects.order_by("-created_at").first()
+    assert row.read == ["TST-0010-F00001"]
+    assert final["meta"] == "Answered from 1 matching finding. Places from your question: Akkar."
+
+
+OOS = ["oosc", "out-of-school", "out of school"]
+
+
+def _chain(questions, *, docs):
+    """Each of ``questions`` asked in turn in one conversation (retrieval only): the Picked of each."""
+    factory.load(build(docs))
+    earlier, out = [], []
+    for question in questions:
+        picked = _picked(question, earlier=list(earlier))
+        cited = [f.finding_id for f in picked.findings][:2]
+        earlier.append(
+            {"question": question, "answer": "Fake.", "cited": cited, "new_subject": picked.new_subject}
+        )
+        out.append(picked)
+    return out
+
+
+def test_a_follow_up_with_no_word_of_its_own_keeps_the_subject_of_its_group_of_people(ai, today):  # noqa: F811
+    girls = [
+        "In Akkar, 31% of girls were out of school.",
+        "In the North, 12% of girls were married before 18.",
+        "In Akkar, 27% of children were out of school.",
+    ]
+    turns = _chain(
+        [
+            "out of school children in Akkar",
+            "and for girls?",
+            "and in the North?",
+            "can u do it for all lebanon?",
+        ],
+        docs=[*DOCS, ("2025", girls)],
+    )
+    for picked in turns[1:]:
+        assert OOS in picked.groups and ["girls"] in picked.groups and picked.new_subject == []
+        assert "subject" in picked.kept
+    # no finding of the North on out-of-school girls: those of Akkar are read, never girls on any subject
+    assert "TST-0010-F00002" not in [f.finding_id for f in turns[2].findings]
+    assert "TST-0010-F00001" in [f.finding_id for f in turns[2].findings]
+
+
+ADDED = [
+    "In Bekaa, the trend of children out of school rose since 2019.",
+    "In Mount Lebanon, the trend in rents rose since 2019.",
+    "In Bekaa, the causes of children out of school were costs.",
+    "In Mount Lebanon, the main causes of road accidents were speeding drivers.",
+    "In Akkar, out-of-school rates were highest among Syrian nationality children.",
+    "In Mount Lebanon, residents of every nationality used the clinics.",
+]
+
+
+@pytest.mark.parametrize(
+    ("addition", "joined"), [("and the trend?", 1), ("and the causes?", 3), ("and by nationality?", 5)]
+)
+def test_an_addition_that_findings_elsewhere_join_to_q1_keeps_its_subject_for_q4(ai, today, addition, joined):  # noqa: F811
+    turns = _chain([Q1, addition, Q4], docs=[*DOCS, ("2024", ADDED)])
+    for picked in turns[1:]:
+        assert OOS in picked.groups and picked.new_subject == [] and "subject" in picked.kept
+    read = [f.finding_id for f in turns[1].findings]
+    assert factory.finding_id(10, joined) in read and factory.finding_id(10, joined + 1) not in read
 
 
 def test_a_reworded_q3_keeps_q2s_years_for_q4(ai, today):  # noqa: F811

@@ -10,6 +10,7 @@ import re
 import uuid
 
 import pytest
+from django.contrib.postgres.search import SearchVector
 
 from neurodb.km import ask, places, search
 from neurodb.km import columns as cols
@@ -359,6 +360,70 @@ def test_latest_reads_the_newest_findings_when_none_is_recent(ai, today):  # noq
         ("child marriage since the 2019 crisis", list(range(2026, 2018, -1)), "child marriage"),
         ("child labour since the 2019 economic crisis", list(range(2026, 2018, -1)), "child labour"),
         ("child labour since the 2019 school year", list(range(2026, 2018, -1)), "child labour school year"),
+        # "in 2024" before what happened then ("amid", "despite", "following" and the like): the year of the
+        # data, the event's words searched as written
+        (
+            "out of school children in the South in 2024 amid the recent escalation",
+            [2024],
+            "out of school children in the South amid the recent escalation",
+        ),
+        ("children in 2024 amid the ongoing war", [2024], "children amid the ongoing war"),
+        (
+            "school enrolment in 2024 despite the economic crisis",
+            [2024],
+            "school enrolment despite the economic crisis",
+        ),
+        (
+            "child poverty in 2024 given the economic crisis",
+            [2024],
+            "child poverty given the economic crisis",
+        ),
+        (
+            "child labour in Akkar in 2024 amid the economic crisis",
+            [2024],
+            "child labour in Akkar amid the economic crisis",
+        ),
+        (
+            "situation of children in South Lebanon in 2024 following the October escalation",
+            [2024],
+            "situation of children in South Lebanon following the October escalation",
+        ),
+        (
+            "children in Nabatieh in 2024 amidst the cross-border hostilities",
+            [2024],
+            "children in Nabatieh amidst the cross-border hostilities",
+        ),
+        (
+            "school attendance in 2025 throughout the economic crisis",
+            [2025],
+            "school attendance throughout the economic crisis",
+        ),
+        (
+            "child labour in all gov in 2023 amid the deepening economic crisis",
+            [2023],
+            "child labour in all gov amid the deepening economic crisis",
+        ),
+        (
+            "out of school children in 2024 across the south amid hostilities",
+            [2024],
+            "out of school children across the south amid hostilities",
+        ),
+        (
+            "children in Akkar 2024 amid the economic crisis",
+            [2024],
+            "children in Akkar amid the economic crisis",
+        ),
+        # a year before the year of an event: the year of the data (the event's year only ranks)
+        (
+            "out of school children per governorate in 2025 following the 2024 war",
+            [2025],
+            "out of school children per governorate following war",
+        ),
+        (
+            "school enrolment in 2025 following the 2024 escalation",
+            [2025],
+            "school enrolment following escalation",
+        ),
     ],
 )
 def test_years_of_a_question(asked, years, left):
@@ -385,6 +450,7 @@ def test_years_of_a_question(asked, years, left):
             "out of school children before the 2020 port of Beirut explosion",
             ["2020", "port", "beirut", "explosion"],
         ),
+        ("out of school children per governorate in 2025 following the 2024 war", ["2024"]),
     ],
 )
 def test_the_year_of_an_event_only_ranks(asked, ranks):
@@ -937,6 +1003,53 @@ def test_a_list_of_places_names_each_of_them(ai):  # noqa: F811
     assert not places.compares(t[6]) and places.compares(t[1]) and places.compares(t[2])
 
 
+# a longer name joined to the next word ("Bint Jbeil-based"), written with a dash ("Bint–Jbeil"), or places
+# with a slash between them ("the North/Bekaa"): each names the places it writes, and only those
+JOINED = (
+    "In the Bint Jbeil-Marjayoun area, 40% of children were out of school.",
+    "Bint Jbeil-based families reported that 35% of children were out of school.",
+    "In South Metn-based shelters, 22% of displaced children were out of school.",
+    "North Bekaa-based groups found 30% of children out of school.",
+    "In Bint–Jbeil, 17% of children were out of school.",
+    "In North—Bekaa, 19% of children were out of school.",
+    "In the North/Bekaa, 13% of children worked.",
+    "In Akkar/North, 30% of children worked.",
+    "In South Metn/Baabda, 12% of children worked.",
+)
+
+
+def test_a_longer_name_joined_to_a_word_or_a_slash_names_only_its_place(ai):  # noqa: F811
+    t = JOINED
+    load(("2024", t[:5]), ("2024", t[5:]))
+    keys = [g.key for g in places.GOVERNORATES]
+    expected = {
+        t[0]: {"nabatieh"},
+        t[1]: {"nabatieh"},
+        t[2]: {"mount-lebanon"},
+        t[3]: {"baalbek-hermel"},
+        t[4]: {"nabatieh"},
+        t[5]: {"baalbek-hermel"},
+        t[6]: {"north", "bekaa"},
+        t[7]: {"akkar", "north"},
+        t[8]: {"mount-lebanon"},
+    }
+    for text, named in expected.items():
+        found = KMFinding.objects.filter(key_finding=text)
+        groups = zip(keys, places.governorate_alternatives(), strict=True)
+        assert {key for key, g in groups if found.filter(ask.hit(g)).exists()} == named, text
+    assert read(_picked("situation of children in Jbeil")) == set()
+    assert read(_picked("situation of children in Nabatieh")) == {t[0], t[1], t[4]}
+    assert read(_picked("situation of children in the North")) == {t[6], t[7]}
+    assert read(_picked("situation of children in Mount Lebanon")) == {t[2], t[8]}
+    assert read(_picked("situation of children in Baalbek-Hermel")) == {t[3], t[5]}
+    # a finding loaded before its texts' slashes were spaced in the index: "South Metn/Baabda" is still no South
+    KMFinding.objects.filter(key_finding=t[8]).update(
+        own_vector=SearchVector("key_finding", weight="A", config="english")
+    )
+    south = places.governorate_alternatives()[keys.index("south")]
+    assert not KMFinding.objects.filter(key_finding=t[8]).filter(ask.hit(south)).exists()
+
+
 def test_retrievals_reads_of_every_finding_may_be_shared_out_among_parallel_workers(db):
     from django.db import connection
 
@@ -1421,6 +1534,24 @@ def test_only_the_earlier_answers_findings_read_says_so(ai):  # noqa: F811
 # ------------------------------------------------------------------------------------------ tables
 TABLE_HEAD = "| Indicator or measure | Figure as stated | Year | Finding ID |\n"
 SHAPES = {
+    # lines broken by a carriage return alone, a line of no-break spaces (no blank line for markdown), the
+    # words of a link written in a cell (no link)
+    "rows on carriage returns": (
+        TABLE_HEAD.replace("\n", "\r") + "|---|---|---|---|\r| Fake rate | 40% | 2024 | TST-0001-F00001 |\r"
+        "| Fake unsupported rate | 99% | 2024 | none |\r| Fake other rate | 77% | 2025 | |",
+        2,
+    ),
+    "the words of a link in a cell": (
+        TABLE_HEAD + "|---|---|---|---|\n| Fake rate | 40% | 2024 | TST-0001-F00001 |\n"
+        '| Fake unsupported rate | 99% | 2024 | href="/km/findings/ |\n'
+        '| Fake other rate | 77% | 2025 | `<a href="/km/findings/` |',
+        2,
+    ),
+    "a line of no-break spaces": (
+        TABLE_HEAD + "|---|---|---|---|\n| Fake rate | 40% | 2024 | TST-0001-F00001 |\n\u00a0\n"
+        '| Fake unsupported rate | 99% | 2024 | `href="/km/findings/` |\n| Fake other rate | 77% | 2025 | |',
+        2,
+    ),
     "a line without a pipe": (
         TABLE_HEAD
         + "|---|---|---|---|\n| Fake rate | 40% | 2024 | TST-0001-F00001 |\nFake unsupported rate 99%\n"
@@ -1567,6 +1698,14 @@ def test_every_table_shape_keeps_only_rows_that_give_a_finding_read(ai, shape): 
     assert re.findall(r"\d+%", _shown(checked.html)) == re.findall(r"\d+%", checked.answer)
 
 
+def test_a_rendered_row_is_kept_for_a_link_to_a_finding_never_for_its_words(ai):  # noqa: F811
+    html_text = ask.render(
+        '| Indicator | Finding ID |\n|---|---|\n| Invented 99% | href="/km/findings/ |', []
+    )
+    shown, removed, _gone = ask._unlinked_rows(html_text)
+    assert removed == 1 and "<table" not in shown and "99%" not in shown
+
+
 def test_the_answer_kept_and_copied_is_the_answer_shown(client_viewer, ai):  # noqa: F811
     factory.load(factory.workbook(documents=2, findings=4))
     conversation = uuid.uuid4()
@@ -1657,6 +1796,11 @@ CLAIMS = [
     "Data show that 30% of girls in Akkar are missing from secondary school because they work.",
     "Figures show that a qualified teacher is missing in half of the fake schools of Akkar.",
     "The Excel you asked for shows that 99% of fake children are out of school in the hills.",
+    # what is missing, then a figure in a clause of its own
+    "Figures by sex are missing for Nabatieh, where 60% of girls left school by age 15.",
+    "Data on children with disabilities are not available for the South, but 45% of them were out of school.",
+    "Evidence for Akkar is lacking while 90% of girls there were married before 18.",
+    "Figures by sex are missing for Akkar, and girls there left school early to work in the fields.",
 ]
 NOT_CLAIMS = [
     # what is missing from the findings
@@ -1679,6 +1823,8 @@ NOT_CLAIMS = [
     "Data on children with disabilities are missing in the findings for Nabatieh.",
     "Data disaggregated by disability are not available for the South governorate.",
     "Disability-specific figures are not available for Nabatieh in the findings read.",
+    "Figures by sex are not available for 2024 in the South governorate and Nabatieh.",
+    "Figures by disability are missing for the South governorate, and for Nabatieh.",
     "An Excel and a CSV of the findings read are available under this answer.",
     "An Excel of these findings is available under this answer.",
     "The Excel and the CSV under this answer list each finding read with its publication year and Finding ID.",

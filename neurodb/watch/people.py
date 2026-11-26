@@ -54,14 +54,18 @@ EMAIL = re.compile(
 )
 # An address written out to dodge a filter: "layla.saab at unicef dot org", "layla dot saab at unicef dot
 # org", "layla.saab[at]unicef[.]org", "layla.saab{at}unicef.org", "layla.saab<at>unicef.org", "layla.saab
-# -at- unicef.org", "layla.saab at unicef.org", "rhaddad at hotmail.fr", "rhaddad at yahoo.co.uk", "r .
-# haddad at unicef . org", "layla . saab @ example . org". A plain full stop counts only before a
+# -at- example -dot- org", "layla.saab [ at ] example < dot > org", "layla.saab at unicef.org", "rhaddad at
+# hotmail.fr", "rhaddad at yahoo.co.uk", "r . haddad at unicef . org", "layla . saab @ example . org". A
+# plain full stop counts only before a
 # domain's ending in lower case (``_ENDING``: never a word of a sentence such as "it" or "we"), so that a
 # sentence ("located at Tyre. Net enrolment rose", "located at Tyre.Net", "at school.it was") is not
 # taken; in any case after a name with a full stop inside, as an address has ("Layla.Saab at
 # Unicef.Org", "LAYLA.SAAB AT UNICEF.ORG")
-_AT = r"(?:\s*(?:\[at\]|\(at\)|\{at\}|<at>|-at-)\s*|\s+at\s+)"
-_DOT = r"(?:\s*(?:\[dot\]|\(dot\)|\{dot\}|\[\.\]|\(\.\)|\{\.\})\s*|\s+dot\s+)"
+_AT = r"(?:\s*(?:\[\s*at\s*\]|\(\s*at\s*\)|\{\s*at\s*\}|<\s*at\s*>|-at-)\s*|\s+at\s+)"
+_DOT = (
+    r"(?:\s*(?:\[\s*dot\s*\]|\(\s*dot\s*\)|\{\s*dot\s*\}|<\s*dot\s*>|\[\.\]|\(\.\)|\{\.\})\s*"
+    r"|\s+-dot-\s*|\s+dot\s+)"  # "-dot-" after a space: never inside a word that holds dashes
+)
 _ENDINGS = "org|com|net|int|gov|edu|lb|fr|uk|de|ch|ca|ae|sa|qa|jo|eg|nl|se|au|info|biz|ngo|io"
 _ENDING = rf"(?:{_ENDINGS}|co\.[a-z]{{2}})(?:\.[a-z]{{2}})?"  # with a country's: "unicef.org.lb", "co.uk"
 _SPELLED_ENDING = rf"(?:{_ENDINGS}|co)(?:{_DOT}[a-z]{{2}})?"  # "unicef dot org dot lb"

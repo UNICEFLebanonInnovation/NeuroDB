@@ -364,6 +364,13 @@ ASKED = privacy.People(
         ("what about Vantrell_2019 instead?", f"what about {W}_2019 instead?"),
         ("what about vantrell2019's data?", f"what about {W}2019's data?"),
         ("what about inclusion2019 instead?", "what about inclusion2019 instead?"),
+        # a surname anywhere in a file name or a citation key: after "_", before a hyphen and digits
+        ("what did LCRP_Vantrell_2019 find", f"what did LCRP_{W}_2019 find"),
+        ("survey_vantrell found", f"survey_{W} found"),
+        ("UNICEF_Vantrell found", f"UNICEF_{W} found"),
+        ("Vantrell-2019 on disability", f"{W}-2019 on disability"),
+        ("vantrell-2019 on disability", f"{W}-2019 on disability"),
+        ("vantrell2019vantrell", f"{W}2019{W}"),
         # nothing else changes
         ("e.g. girls' schooling in fake villages", "e.g. girls' schooling in fake villages"),
     ],
@@ -390,6 +397,7 @@ def test_any_case_withholds_what_a_question_kept_before_the_rule_holds():
         ("The Smith-Fakejones-led survey", f"The {W}-led survey"),  # a hyphenated surname
         ("Vantrell’s, (Vantrell) and VANTRELL", f"{W}’s, ({W}) and {W}"),
         ("The Vantrell2019 survey and Vantrell_2020 data", f"The {W}2019 survey and {W}_2020 data"),
+        ("LCRP_Vantrell_2019, survey_vantrell and Vantrell-2019", f"LCRP_{W}_2019, survey_{W} and {W}-2019"),
         # kept: an organisation, a word, a capitalised second part
         (
             "A Fakeorg-led and child-led survey; Vantrell-Fakeword",
@@ -416,6 +424,24 @@ SPELLED = (
     "zayna.fakeharb {at} example {dot} org",
     "zayna.fakeharb at example dot org",
     "zayna.fakeharb at example [dot] org",
+    # "-dot-", "<dot>" and spaces in the brackets; a name with "_" or in capitals before any domain's case
+    "zfakeharb -at- example -dot- org",
+    "zfakeharb <at> example <dot> org",
+    "zfakeharb [ at ] example [ dot ] org",
+    "zfakeharb ( at ) example ( dot ) org",
+    "zayna_fakeharb at Example.Org",
+    "ZFAKEHARB AT EXAMPLE.ORG",
+    "zayna_fakeharb at example.invalid",
+)
+# in a question, any name before "at" and a domain, whatever its case or ending, and "at" or a dot in letters
+# that look like them
+SPELLED_TYPED = (
+    "zfakeharb at Example.Org",
+    "zfakeharb at example.invalid",
+    "zfakeharb at example. org",
+    "zfakeharb \u0430t example.org",
+    "zfakeharb \uff41\uff54 example.org",
+    "zfakeharb at example\uff0eorg",
 )
 
 
@@ -431,3 +457,39 @@ def test_an_address_written_out_is_withheld_whole(address):
     for clean in (privacy.for_download, privacy.for_ai):
         assert clean(text) == f"For the data, write to {privacy.EMAIL_WITHHELD} before June.", clean.__name__
     assert privacy.leftover(privacy.for_ai(text)) == []
+
+
+@pytest.mark.parametrize("address", SPELLED_TYPED)
+@pytest.mark.django_db
+def test_an_address_written_out_in_a_question_is_withheld_whole(address):
+    question = f"out of school children in Akkar, contact {address}"
+    assert (
+        privacy.clean_question(question)
+        == f"out of school children in Akkar, contact {privacy.EMAIL_WITHHELD}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("question", "kept"),
+    [
+        # a common word before "at" and a domain is no name: only the domain goes
+        ("out of school children at example.org", f"out of school children at {privacy.LINK_WITHHELD}"),
+        ("children at example dot org", f"children at {privacy.LINK_WITHHELD}"),
+        # nothing else changes
+        ("meet at 5 pm about child labour", "meet at 5 pm about child labour"),
+        ("look at data on child labour", "look at data on child labour"),
+        ("located at Tyre. Net enrolment rose", "located at Tyre. Net enrolment rose"),
+        ("at Halba. info sessions", "at Halba. info sessions"),
+        ("at school. net enrolment", "at school. net enrolment"),
+        ("e.g. at 45% (dot) org", "e.g. at 45% (dot) org"),
+    ],
+)
+@pytest.mark.django_db
+def test_a_common_word_before_a_domain_is_kept(question, kept):
+    assert privacy.clean_question(question) == kept
+
+
+def test_a_download_keeps_a_word_and_a_link_after_at():
+    text = "Data were published at Example.Org in 2024."
+    assert privacy.for_download(text) == text
+    assert privacy.for_ai(text) == f"Data were published at {privacy.LINK_WITHHELD} in 2024."

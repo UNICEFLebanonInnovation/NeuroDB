@@ -296,6 +296,27 @@ def test_both_vectors_are_filled_and_the_load_is_measured(shown):
     assert (shown.documents_count, shown.findings_count) == (3, 4)
 
 
+def test_a_load_leaves_the_tables_analysed_for_the_questions_after_it():
+    from django.db import connection
+
+    factory.load(factory.workbook(documents=3, findings=7))
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT relname, reltuples FROM pg_class WHERE relname IN (%s, %s)",
+            [KMFinding._meta.db_table, KMDocument._meta.db_table],
+        )
+        counted = dict(cursor.fetchall())
+    assert counted == {KMFinding._meta.db_table: 7, KMDocument._meta.db_table: 3}
+
+
+def test_the_slashes_of_a_findings_own_texts_part_their_words_in_its_index():
+    factory.load(
+        factory.workbook(documents=1, findings=2, edits={("findings", 2, "Key Finding"): "In Akkar/North."})
+    )
+    assert KMFinding.objects.filter(own_vector="north", key_finding="In Akkar/North.").exists()
+    assert KMFinding.objects.filter(own_vector="akkar", key_finding="In Akkar/North.").exists()
+
+
 def test_only_one_version_is_shown(shown):
     with pytest.raises(IntegrityError), transaction.atomic():
         factory.version(b"fake", status="live")

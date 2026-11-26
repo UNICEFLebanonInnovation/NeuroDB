@@ -1014,6 +1014,19 @@ def test_the_question_kept_is_the_cleaned_one(client_viewer, ai):
         "zayna.fakeharb(at)example.org",
         "zayna.fakeharb -at- mail.example.org",
         "zayna.fakeharb [at] example [dot] org",
+        # any case, any ending, "-dot-", "<dot>", spaces in the brackets, a space after the dot
+        "zfakeharb at Example.Org",
+        "ZFAKEHARB AT EXAMPLE.ORG",
+        "zayna_fakeharb at Example.Org",
+        "zfakeharb at example.invalid",
+        "zfakeharb -at- example -dot- org",
+        "zfakeharb <at> example <dot> org",
+        "zfakeharb [ at ] example [ dot ] org",
+        "zfakeharb at example. org",
+        # letters that look like "at" or a dot
+        "zfakeharb \u0430t example.org",
+        "zfakeharb \uff41\uff54 example.org",
+        "zfakeharb at example\uff0eorg",
     ],
 )
 def test_an_address_written_out_in_a_question_is_never_kept_sent_or_written(client_viewer, ai, address):
@@ -1035,6 +1048,21 @@ def test_an_address_written_out_in_a_question_is_never_kept_sent_or_written(clie
             assert not any(b"fakeharb" in book.read(name) for name in book.namelist())
     assert fake.calls("km_terms") and len(fake.calls()) == 2
     assert "fakeharb" not in json.dumps(fake.requests, default=str)
+
+
+@pytest.mark.parametrize(
+    "typed",
+    [
+        "zqkmtoken leila\u200b_hamdan at example.org",
+        "zqkmtoken ZFAKEHARB AT EXAMPLE.ORG",
+        "zqkmtoken zfakeharb -at- example -dot- org",
+        "zqkmtoken zfakeharb at example.invalid",
+    ],
+)
+def test_an_address_written_out_is_never_searched(typed):
+    searched = ask._searchable(typed).casefold()
+    assert "zqkmtoken" in searched and "leila" not in searched and "fakeharb" not in searched
+    assert "example" not in searched
 
 
 # ------------------------------------------------------------------------------------------------- the tab

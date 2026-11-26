@@ -139,8 +139,9 @@ download the findings it read.
   Jbeil; "South Metn" is Baabda, in Mount Lebanon; "North Bekaa" is Baalbek-Hermel; "South Bekaa" is the
   Bekaa). A finding that names both, such as "the Bekaa and North Bekaa", counts for both places, and a
   list of places names each of them: "the South, Bekaa and Akkar", "the North, Bekaa and Akkar" or "the
-  South. Bekaa ..." is never South Bekaa or North Bekaa (only a space or a hyphen joins the words of one
-  place's name, as in "North-Bekaa"). "South Lebanon", "the south", "the southern governorates", "the
+  South. Bekaa ..." is never South Bekaa or North Bekaa (only a space, a hyphen or a dash joins the words
+  of one place's name, as in "North-Bekaa" or "Bint–Jbeil"), and "the North/Bekaa" names the North and the
+  Bekaa. "Bint Jbeil-based" is Bint Jbeil, never Jbeil. "South Lebanon", "the south", "the southern governorates", "the
   southern region" or "areas" and "Janoub" mean the South and Nabatieh governorates, whatever words follow
   ("the southern governorates in light of the escalation"); "the northern governorates" and "the northern
   region" mean the North and Akkar; the line under the answer says so. "The southern region of the Bekaa"
@@ -168,7 +169,8 @@ download the findings it read.
   10 findings of the past 2 years match, the newest older ones are read too, and the line says so.
   "Recently displaced children" or "targets for 2030" set no year, nor does the year of an event ("the
   2020 explosion", "after the 2024 war", "the 2019 financial and economic crisis", "the 2020 port of Beirut
-  explosion") or a year you compare with on its own ("compared to 2019",
+  explosion"; "in 2024 amid the escalation" and "in 2025 following the 2024 war" are the years 2024 and
+  2025) or a year you compare with on its own ("compared to 2019",
   "before the 2019 crisis"): the findings that mention that year only come first. A year you compare with
   next to a year of your own is read too: "in 2025 than in 2019" reads 2025 and 2019, and so does "and
   compared to 2019?" after a question on 2025 ("before 2020" never reads 2020). "Since the 2019 crisis"
@@ -188,8 +190,11 @@ download the findings it read.
   document"), links or phone numbers, and never a name of a person: names of NeuroDB's people and of the
   KM Database's authors are taken out of your question, in capitals or not, and names inside the findings
   (citations, reference lists, people quoted, people named with their job) are written "[name withheld]".
-  An e-mail address is taken out whole, also when it is written out with "at" and "dot" in words or in
-  brackets, in your question and in the downloads. If a name is still found, nothing is sent.
+  An e-mail address is taken out whole, also when it is written out with "at" and "dot" in words, with
+  dashes or in brackets ("x [ at ] example [ dot ] org", "x -at- example -dot- org"), in your question and
+  in the downloads; in your question also any name before "at" and a web address, in capitals or not, while a
+  common word stays ("children at [link withheld]"). If a name is still found,
+  nothing is sent.
 - **The answer.** Each sentence ends with the findings it rests on, as [references]: each one opens its
   finding, in a new tab. An opening sentence that sums up the answer may have none. Figures are given
   exactly as each finding states them: never added up or averaged, compared only when each carries its
@@ -213,7 +218,8 @@ download the findings it read.
   finding read compares governorates"). A sentence that cites no finding is counted under the answer: check it
   against the findings (the opening sentence, a sentence whose reference ends the next one of its paragraph,
   a sentence saying what the findings lack or what is missing from them, such as "Figures by disability
-  are missing for the South", and one that only points to the Excel under the answer, such as "An Excel
+  are missing for the South", unless it goes on with a figure, such as "..., where 60% of girls left
+  school", and one that only points to the Excel under the answer, such as "An Excel
   and a CSV of the findings read are available under this answer", are not counted; a sentence about
   people, such as "girls do not report it", "girls are missing from secondary school" or "teachers said
   they do not give information", is, and so is a pointer to the Excel that says something more, such as
@@ -233,24 +239,28 @@ download the findings it read.
   the findings its answer cited again. A question is a follow-up when it is short ("and for boys?"), when
   it refers to the answer ("do it for all Lebanon", "adjust the text above", "the same for Akkar", "redo",
   "what about child marriage?", "and for girls", "now with a focus on boys", "now focus on refugees",
-  "focus on girls instead"), when it asks to rework the answer in any words, at its start or after "but",
-  "and", "so" or praise ("revise the paragraph for girls", "rephrase the answer in simpler words", "make
+  "focus on girls instead"), when it asks to rework the answer in any words, at its start, after a mark or
+  after praise ("revise the paragraph for girls", "rephrase the answer in simpler words", "make
   it shorter", "make it more detailed", "can you elaborate on this?", "give more details", "summarise it
   in bullet points", "convert it to a table", "write it for a donor audience", "the same answer but with
-  a gender lens", "translate it to Arabic", "in French please", "this is good but can you shorten it",
-  "good job, now rewrite it for girls", "the paragraph is too long please shorten it"), or when it has no
+  a gender lens", "translate it to Arabic", "translate everything into Arabic", "in French please", "this
+  is good but can you shorten it", "i like it but can you shorten it", "good job, now rewrite it for girls",
+  "the paragraph is too long please shorten it"), or when it has no
   subject of its own (only places, years or what you want: "what about Akkar since 2024?", "once done I
   need an excel sheet", "the same in Arabic", "I need it shorter", "is there an update this year?", which
   keeps the subject and place with this year). A "Thanks," "great," or "this is good" in front changes
   nothing. Any other question that names its subject, even in general words ("the situation of children
   for all governorates") or with words such as "again", "instead", "update" or "summarise this year's"
   ("why did enrolment fall again?", "why are boys sent to work instead?", "is there an update this year on
-  child marriage?", "translate the key findings on child marriage into Arabic"), starts afresh. Words such
+  child marriage?", "translate the key findings on child marriage into Arabic", "give me the number of out
+  of school children in lebanon and break it down by governorate", "Focusing on Akkar, what are the main
+  barriers to education?"), starts afresh. Words such
   as "Arabic", "informal", "focus" or "points" are searched as any other ("Arabic literacy", "informal
   settlements", "water points"), except in a request to rework the answer or to have it in another
   language or length. When no finding of the place joins a follow-up's own words to the earlier subject,
-  a group of people ("and for girls?", "what about girls?", "what about refugees?") that findings
-  elsewhere join keeps the subject, and the findings of all of Lebanon are read; otherwise its own words
+  a group of people ("and for girls?", "what about girls?", "what about refugees?") or an addition ("and
+  the trend?", "and by nationality?") that findings elsewhere join keeps the subject, and the findings of
+  all of Lebanon are read; otherwise its own words
   are read alone, in the earlier place and years. A follow-up's own words on a subject of their own ("what
   about child marriage?", "child marriage", "and for child labour?", "what about ECD?" after a question on
   Tripoli: that subject in Tripoli) become the subject of the next follow-up, as they were read (when a

@@ -26,6 +26,8 @@ from collections import Counter
 
 from django.contrib.postgres.search import SearchVector
 from django.db import DatabaseError, connection, transaction
+from django.db.models import F, TextField, Value
+from django.db.models.functions import Replace
 from django.utils import timezone
 
 from neurodb.integrations import background
@@ -128,6 +130,7 @@ def run(pk: int, fewer_ok: bool = False) -> KMVersion | None:
             logger.exception("KM Database load %s stopped", pk)
             return _fail(version, error=say(words.STOPPED, error=type(exc).__name__))
         forget_live()
+        _analyse()
         return KMVersion.objects.defer("content").get(pk=pk)
     finally:
         _unlock()
@@ -303,10 +306,29 @@ def _replace(version: KMVersion, report: workbook.Report, content: bytes, starte
             raise Removed(str(words.REMOVED))
 
 
+def _analyse() -> None:
+    """The planner's statistics of the tables a load wrote again, gathered at once (ANALYZE): the questions
+    asked after a load are read with the plans of its rows, never of the rows it replaced. A failure is only
+    logged (autovacuum gathers them later)."""
+    try:
+        with transaction.atomic(), connection.cursor() as cursor:
+            for model in (KMDocument, KMFinding):
+                cursor.execute(f"ANALYZE {connection.ops.quote_name(model._meta.db_table)}")
+    except DatabaseError:
+        logger.warning("KM Database load: the tables could not be analysed", exc_info=True)
+
+
+def _spaced(name: str) -> Replace:
+    """A text with a space on either side of each slash, so that the index reads "the North/Bekaa" as the
+    words "north" and "bekaa" (PostgreSQL reads "north/bekaa" as one word, as it reads a file's path)."""
+    return Replace(F(name), Value("/"), Value(" / "), output_field=TextField())
+
+
 def _fill_vectors() -> None:
     """The search vectors, filled in the database: for the page's search box every searchable text, for the
     assistant only the finding's own words (not its document's methods, population or titles, which every
-    finding of the document shares). Never the authors, the marks or the IDs."""
+    finding of the document shares), their slashes spaced (:func:`_spaced`). Never the authors, the marks or
+    the IDs."""
     eight = (
         "key_finding",
         "measure",
@@ -322,9 +344,9 @@ def _fill_vectors() -> None:
         + SearchVector("measure", "document_title", "item_title", weight="B", config="english")
         + SearchVector("analysis", "population", "methods", "limitations", weight="C", config="english")
         + SearchVector(*eight, weight="D", config="simple"),
-        own_vector=SearchVector("key_finding", weight="A", config="english")
-        + SearchVector("measure", "analysis", weight="B", config="english")
-        + SearchVector("limitations", weight="C", config="english")
+        own_vector=SearchVector(_spaced("key_finding"), weight="A", config="english")
+        + SearchVector(_spaced("measure"), _spaced("analysis"), weight="B", config="english")
+        + SearchVector(_spaced("limitations"), weight="C", config="english")
         + SearchVector("sub_question", "sub_sub_question", "indicator", weight="D", config="english"),
     )
     KMDocument.objects.update(

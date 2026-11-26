@@ -1323,7 +1323,10 @@ one at a time, advisory lock `7140442`):
 - pass 1 reads every row once and checks it, with no database access; pass 2 reads the findings again
   and writes them 1,000 at a time; one transaction replaces every document and finding (the old rows stay
   visible until it commits), fills the search indexes and makes the version live. The version it
-  replaces keeps its summary only;
+  replaces keeps its summary only. Then the load gathers PostgreSQL's statistics of the two tables (ANALYZE,
+  in the load itself: no command), so that the questions asked right after it are read with the plans of
+  its rows (before autovacuum gathers them, a breakdown on the invented 15,000-finding workbook took up to
+  twice as long); a failure there is only logged;
 - a failed load, or one that stops (the container restarted), leaves the version shown as it was; a
   version left *Loading* while no load holds the lock, or *Waiting to load* for over 2 minutes, is marked
   *Not loaded* at the next view of the versions or of the KM Database page (so the page stops saying a new
@@ -1408,14 +1411,20 @@ strongest; `neurodb.km.columns.CONFIDENCE_A_STRONGEST` turns on the colours once
   cell. When unsure it counts a person. An organisation string that still holds a KM author's name, a
   citation, a name after a title or a name after "by" or "author" is counted as an author instead.
 - **Every text column** goes through `neurodb.km.privacy.for_download` (only the Finding ID and Document ID
-  are written as they are): e-mail addresses, citation names ("Doe et al.", "(Doe, 2019)", "Roe (2018)",
+  are written as they are): e-mail addresses (written out too: "x [at] example [dot] org", "x -at- example
+  -dot- org", "x [ at ] example [ dot ] org", and before a domain of any case or ending when the word before
+  "at" holds a full stop, "_", "+" or a digit or is written in capitals with "AT": "x_y at Example.Org", "X
+  AT EXAMPLE.ORG"; "published at Example.Org" keeps its words and its link), citation names ("Doe et al.",
+  "(Doe, 2019)", "Roe (2018)",
   "(Doe 2010, Roe 2020)", "(Doe 2002 methodology)", "Doe and Roe 2020", "in Doe 2016"; then the same name
   elsewhere in that text),
   interview speakers ("– Fakename, 34", "Fakename, 11, was", "Fakename (20, male)", "Fakename, a boy"),
   reference lists ("Doe, J.", "Roe Poe, M. C."; "Doe J" for a KM author), "Doe 2020:" and "Doe 2020
   (Lebanon)", a KM author's surname in "(Doe, Lebanon)" or "studies by Doe, Roe and Poe" (with the other
   names of that list), a name with an office ("Minister Jane Doe", "Jane Doe, Director of"), a KM author's
-  surname after a name withheld and a first name before one, the document's own authors by surname, the
+  surname after a name withheld and a first name before one, the document's own authors by surname (also
+  joined to digits or "_" anywhere in a word, "LCRP_Doe_2019", "survey_doe", or before a hyphen and digits,
+  "Doe-2019"), the
   KM authors' full names and names after a title are written "[name withheld]". Words that start a sentence
   ("However, 2021") are never taken for a name. Months, places, organisations, survey and plan
   names, and acronyms are kept; links and numbers are kept. NeuroDB's own list of people (Watch's) is never
@@ -1459,13 +1468,20 @@ NeuroDB's run, prompt, tools, date or year lines; the message has its own line s
 asked). In order:
 
 1. The question (1-1,000 characters) is cleaned for sending and keeping: an e-mail address written out
-   first, on the text as typed ("x at example.org", "x(at)example.org", "x -at- mail.example.org", "x [at]
-   example [dot] org": withheld whole, never its name with the domain alone taken out), then the names
-   NeuroDB knows (the Help assistant's rule; that list is only read to take names out), e-mail addresses,
-   links and phone numbers, then the KM Database's authors (full names and surnames, in capitals or not:
-   "what did doe find"; also before digits or "_": "doe2019", "doe_survey"), citations and names after a
-   title. The typed text is searched (never an address in it, written out or not), never kept or sent. The
-   questions sent (and earlier questions of the conversation) are checked again for a surname in any case.
+   first, on the text as typed (`privacy.without_addresses`: "x at example.org", "x(at)example.org", "x -at-
+   mail.example.org", "x [at] example [dot] org", "x [ at ] example [ dot ] org", "x -at- example -dot- org",
+   "x <at> example <dot> org", and any word before "at" and a domain of any case or ending, "x at
+   Example.Org", "X AT EXAMPLE.ORG", "x at example.invalid", "x at example. org", also with letters that
+   look like "at" or a dot, "ａｔ", "example．org": withheld whole, never its name with the domain alone taken
+   out; a common word before "at" is no name and stays, "out of school children at [link withheld]", but
+   any other goes with the address, "the report [email withheld] say about child labour" for "the report
+   published at example.org say about child labour"), then the names NeuroDB knows (the Help assistant's rule;
+   that list is only read to take names out), e-mail addresses, links and phone numbers, then the KM
+   Database's authors (full names and surnames, in capitals or not: "what did doe find"; also joined to digits
+   or "_" anywhere in a word, or before a hyphen and digits: "doe2019", "doe_survey", "LCRP_Doe_2019",
+   "Doe-2019"), citations and names after a title. The typed text is searched (never an address in it,
+   written out or not, by the same rule), never kept or sent. The questions sent (and earlier questions of the
+   conversation) are checked again for a surname in any case.
 2. The filters it reads within are those of the tab's address (the Findings tab's filter, carried by the
    tab link, or *Ask about its document*): known keys only, never the search box's words, the sort or the
    page size.
@@ -1485,8 +1501,10 @@ asked). In order:
      2000 children") is no year, and is searched; so is a decimal or a number with a thousands comma
      ("2024.5", "2024,500"); a year before "child" is a year ("the 2024 child labour figures"). **The year of
      an event** ("the 2020 explosion", "after the 2024 war", "Lebanon's 2019 crisis": "the" and a year are an
-     event's only when an event word follows within 3 words, "and", "&", "of" or "the" between them too: "the
-     2019 financial and economic crisis", "the 2020 port of Beirut explosion") and **a year compared with** on
+     event's only when an event word follows within 3 words, "and", "&" or "of" between them too: "the
+     2019 financial and economic crisis", "the 2020 port of Beirut explosion"; never after a word that places
+     the year at a time, "in 2024 amid the recent escalation", "in 2024 despite the economic crisis", "in 2025
+     following the 2024 war": the years 2024 and 2025, the war's year only ranks) and **a year compared with** on
      its own ("compared to 2019", "higher than 2019", "before the 2019 crisis") set no Year filter and are not
      searched: they only put the findings that mention that year first among those that match. Any other year
      after "the" is the year of the data ("the 2024 figures", "the 2024 out of school figures", "the 2024
@@ -1531,13 +1549,19 @@ asked). In order:
      in "South Metn" or "South Bekaa", "Bekaa" in "North Bekaa"; a text that also writes it on its own names
      it: "the Bekaa and North Bekaa" names the Bekaa and Baalbek-Hermel, "Jbeil, Bint Jbeil" Mount Lebanon and
      Nabatieh; such a finding still counts for its own place when that place is in the group too: "Mount
-     Lebanon and Nabatieh", a breakdown). Only spaces or one hyphen join the words of a place's name, in a
-     question and in a text ("North Bekaa", "North-Bekaa"): "the South, Bekaa and Baalbek-Hermel", "the South.
-     Bekaa ...", "the North, Bekaa and Akkar" or "the North" and "Bekaa" on two lines name each place, never
-     South Bekaa or North Bekaa (Baalbek-Hermel). In PostgreSQL (`ask.hit`, `places.standalone`,
+     Lebanon and Nabatieh", a breakdown). Only spaces or one hyphen or dash join the words of a place's name,
+     in a question and in a text ("North Bekaa", "North-Bekaa", "Bint–Jbeil"): "the South, Bekaa and
+     Baalbek-Hermel", "the South. Bekaa ...", "the North, Bekaa and Akkar", "the North/Bekaa" or "the North"
+     and "Bekaa" on two lines name each place, never South Bekaa or North Bekaa (Baalbek-Hermel); "Bint
+     Jbeil-based", "In the Bint Jbeil-Marjayoun area", "South Metn-based" and "North Bekaa-based" name only
+     the longer name's place. A load indexes a finding's own texts with a space on either side of each slash
+     (`loading._fill_vectors`): "the North/Bekaa" names the North and the Bekaa (a version loaded before this
+     names them once its workbook is uploaded again). In PostgreSQL (`ask.hit`, `places.standalone`,
      `places.as_written`) the index is read first: a finding's texts are read only when its index holds the
-     word and one of the longer names (then the plain word, "\mbekaa\M", and once the longer names are taken
-     out, `regexp_replace`, the word again), or the longer name itself, never with a lookahead at each word;
+     word and a word that starts as another word of a longer name holding it does ("bint" for "jbeil",
+     "bekaa" or "metn" for "north"; then the plain word, "\mbekaa\M", and once the longer names are taken
+     out, `regexp_replace`, the word again), or every word of a longer name (then the longer name as written),
+     never with a lookahead at each word;
      "governorate", "gov", "mohafaza", "district" and "caza" go with a place named, and without one ask for a
      **breakdown** ("all governorates", "by governorate", "all gov", "per governorate", "per gov", "across
      governorates", "across Lebanon's governorates", "across all Lebanese governorates", "across the country's
@@ -1622,18 +1646,26 @@ asked). In order:
    - **A follow-up.** In a conversation, a question is a follow-up when it has under 4 words, when it refers
      to the earlier answer ("do it for", "do the same", "same for", "the same answer", "the text above", "the
      previous answer", "what about", "how about", a question starting with "and for", "and in", "now with",
-     "now for"..., "now focus on", "with a focus on", one ending with "instead" that opens with no question
-     word: "focus on girls instead"), when it asks to rework that answer, whatever the words: "redo",
-     "rework", "rewrite", "rephrase", "reword" anywhere; a verb that opens the question or a clause (after a
-     mark, "but", "and", "so", "then", "please" or a judgement of the answer in the middle of a sentence:
-     "this is good but can you shorten it", "good job, now rewrite it for girls", "the paragraph is too long
-     please shorten it", "it is too long can you make it shorter"; then maybe after "and", "now", "can you",
-     "please"...) with "it", "this" or "that" alone or the answer ("revise the paragraph", "adjust the answer
+     "now for"..., "now focus on", "with a focus on" when the lens is the whole question, "now focus on
+     refugees", "with a focus on refugees please", never "Focusing on Akkar, what are the main barriers to
+     education?" or "focus on child labour in the Bekaa: what do the studies say?"; one ending with "instead"
+     that opens with no question word: "focus on girls instead"), when it asks to rework that answer, whatever
+     the words: "redo", "rework", "rewrite", "rephrase", "reword" anywhere; a verb that opens the question or a
+     clause (after a mark or a judgement of the answer: "the paragraph is too long please shorten it", "it is
+     too long can you make it shorter"; after praise, which is no word of the question: "this is good but can
+     you shorten it", "the paragraph is good but can you shorten it", "i like it but can you shorten it",
+     "good job, now rewrite it for girls"; then maybe after "and", "now", "can you", "please"...; never a
+     "but", "and", "so", "then" or "please" inside a question of its own: "give me the number of out of
+     school children in lebanon and break it down by governorate", "... in Akkar in 2024 and translate it to
+     arabic", "... in all governorates then make it shorter" are new questions) with "it", "this" or "that"
+     alone or the answer ("revise the paragraph", "adjust the answer
      for girls", "shorten it", "expand the summary", "can you expand on this?", "can you elaborate on this?",
      "summarise it in bullet points", "translate it to Arabic", "convert it to a table", "make it shorter",
      "make it more detailed", "make it more formal", "put it in a table", "write it again for donors", "break
-     it down by sex"), "translate" opening it alone or with a language only ("translate into Arabic please";
-     "translate the key findings on child marriage into Arabic" is a question of its own), "elaborate" opening
+     it down by sex"), "translate" opening it alone, with a language, or with only the words of the answer
+     before a language ("translate into Arabic please", "translate everything into Arabic", "can you translate
+     the whole thing into French", "translate the second paragraph into Arabic", "translate the results into
+     Arabic"; "translate the key findings on child marriage into Arabic" is a question of its own), "elaborate" opening
      it, "give more details", "go into more detail", "add ... to the paragraph", or a short question that is
      only a rework's form ("in Arabic please", "and in French?", "shorter please", "a shorter version"); or
      when it has no subject of its own: no word left to search once places, years, codes and request words are
@@ -1658,13 +1690,15 @@ asked). In order:
      governorate (or a district or town of one) instead, a time frame of its own replaces the earlier years.
      It reads the findings the previous answer cited first (up to 20; when it names a place of its own, only
      those naming it). When no finding of the place matches its angles together with the earlier subject: an
-     angle on that subject ("and for girls?", "for girls", "what about refugees?") that findings elsewhere
-     join to it keeps the subject, and the place is widened ("No finding on this subject names Tripoli (the
-     North): findings from all of Lebanon were read."); a new subject ("what about child marriage?", "child
-     marriage", "and for child labour?", "what about ECD?" after out-of-school children in Tripoli reads that
-     subject in Tripoli), a rework, or an angle no finding joins anywhere searches its angles alone, in the
-     earlier place and years (one of two words when none holds both, and the line says so). The words of any
-     follow-up but a rework or a group of people are then a new subject: the subject of the next follow-up
+     angle on that subject ("and for girls?", "for girls", "what about refugees?"), or an addition ("and the
+     trend?", "and the causes?", "and by nationality?", `ask.ADDS`), that findings elsewhere join to it keeps
+     the subject, and the place is widened ("No finding on this subject names Tripoli (the North): findings
+     from all of Lebanon were read."); a new subject ("what about child marriage?", "child marriage", "what
+     about ECD?" after out-of-school children in Tripoli reads that subject in Tripoli), a rework, or an angle
+     or addition no finding joins anywhere searches its angles alone, in the earlier place and years (one of
+     two words when none holds both, and the line says so). The words of its own of any follow-up but a rework
+     or a group of people are then a new subject (a follow-up with no word of its own, "and in the North?",
+     "can u do it for all lebanon?", never makes the earlier angle the subject): the subject of the next follow-up
      (the question's row keeps them, `new_subject`, as they were read: one group of all their words when one
      of them was enough, so that "can u do it for all lebanon?" after "what about child marriage and child
      labour?" reads either; and only the words the cleaned question holds, never a name it withheld; the
@@ -1749,9 +1783,12 @@ asked). In order:
    figures by sex" is about the findings, "teachers said they do not give information" is not), what is
    missing as the sentence's end ("Figures by sex are missing from the findings read.", "What is missing is
    ..."; never "girls are missing from secondary school" or "children are missing out on education"), data
-   missing or not available, whatever follows ("Figures by disability are missing for the South governorate
-   and for Nabatieh.", "Data on children with disabilities are not available for Nabatieh."; never "Data show
-   that girls are missing from school"), no data as such ("There are no data on child labour by sex."; never
+   missing or not available, and where or for whom ("Figures by disability are missing for the South
+   governorate and for Nabatieh.", "Data on children with disabilities are not available for Nabatieh."; never
+   "Data show that girls are missing from school", nor one that goes on with a figure, but a year, or a
+   clause of its own: "Figures by sex are missing for Nabatieh, where 60% of girls left school by age 15.",
+   "... not available for the South, but 45% of them were out of school.", "Evidence for Akkar is lacking
+   while 90% of girls there were married before 18."), no data as such ("There are no data on child labour by sex."; never
    "there is no evidence that ...", "no data were collected in the hills, where ..." or "households had no
    information"), or what the findings do not answer, nor one that only points to the Excel or CSV under the
    answer ("The Excel of these findings, under this answer, lists the 12 findings read", "An Excel and a CSV
@@ -1764,15 +1801,18 @@ asked). In order:
    rows that give a Finding ID read and none that was not (a row with no Finding ID, or with an invented one
    or one not read this time, is taken out, and a table left with no row goes whole); the notice says so ("1
    row of the table was taken out: it gave no finding read for this answer."). A table is read as
-   Python-Markdown reads it (tabs as spaces, a tab after the header or the rule too; a pipe in code, "`a|b`",
-   splits no cell; a rule of spaced dashes or with a space after it, a table in a quote or on a list item, a
-   line with no pipe inside it: a row; the pipes at either end of a line are left out only when the header has
+   Python-Markdown reads it (a carriage return alone breaks a line; tabs as spaces, a tab after the header or
+   the rule too; only a line of spaces and tabs is blank, so a line of no-break spaces inside a table is one of
+   its rows; a pipe in code, "`a|b`", splits no cell; a rule of spaced dashes or with a space after it, a table
+   in a quote or on a list item, a line with no pipe inside it: a row; the pipes at either end of a line are
+   left out only when the header has
    one, so "a | b" over "|---|---|" is a paragraph; a table of one column needs a pipe at either end of each
    line). Under a rule that markdown reads as a paragraph's ("Indicator | Figure" over "|---|---|"), each line
    with a pipe and no Finding ID read is taken out all the same, the header and the rule too when none is
    left. An HTML table the model writes, a table in a table too, is taken out whole before the answer is shown
    and its rows counted (its references are never linked). The rendered answer is checked again: every row
-   under a table's header that links no finding read is taken out and counted, and out of the text kept too
+   under a table's header that links no finding read (a link, never its words written in a cell,
+   'href="/km/findings/') is taken out and counted, and out of the text kept too
    (each line found by its words as shown: markup such as "<br>" in a row, or a link written in code, never
    keeps it; text in code or between "<" and ">" that is no tag, "`<b>`", "<5", is shown as written, and a
    line is also found by its cells as written). The answer kept (the *Copy* text, and the last answer a

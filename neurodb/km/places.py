@@ -11,7 +11,7 @@ workbook's text and never another NeuroDB table.
   "Bint Jbeil", "North" in "North Metn" or "North Bekaa", "South" in "South Metn" or "South Bekaa":
   :func:`shadows`), but a text that also writes it on its own names it ("the Bekaa and North Bekaa":
   :func:`standalone`), and the other place's findings still count for that other place in the same group
-  ("Mount Lebanon and Nabatieh", a breakdown). Only a space or one hyphen joins the words of a place's
+  ("Mount Lebanon and Nabatieh", a breakdown). Only a space or one hyphen or dash joins the words of a place's
   name (:data:`JOIN`): "the South, Bekaa and Akkar", "the South. Bekaa ..." and "the North, Bekaa and
   Akkar" name each place, never South Bekaa or North Bekaa.
 - **"South Lebanon", "the south", "the southern governorates", "the southern region" or "areas"** mean the
@@ -393,10 +393,10 @@ NATIONAL = (
     "national scale",
 )
 ARTICLE = r"(?:(?:the|el|al|an|ash|ech)[\s-]+)?"  # "the North", "El Nabatieh", "al-Koura"
-# between the words of a place's name, as questions and texts write it: spaces or one hyphen ("North Bekaa",
-# "North-Bekaa"), never a comma, a full stop or a line break ("the North, Bekaa and Akkar": the North, the
-# Bekaa and Akkar). A pattern of Python and of PostgreSQL alike
-JOIN = "(?:[ \t\u00a0]+|-)"
+# between the words of a place's name, as questions and texts write it: spaces or one hyphen or dash
+# ("North Bekaa", "North-Bekaa", "Bint–Jbeil"), never a comma, a full stop or a line break ("the North, Bekaa
+# and Akkar": the North, the Bekaa and Akkar). A pattern of Python and of PostgreSQL alike
+JOIN = "(?:[ \t\u00a0]+|[-\u2013\u2014])"
 
 BY_KEY: dict[str, Place] = {p.key: p for p in (*GOVERNORATES, *DISTRICTS)}
 
