@@ -57,12 +57,20 @@ address.
   to, child-level data, your name or e-mail address.
 - **Cleaned before sending**: monitors' notes, checklist answers, action point texts and your question
   to Chat with Data or the Help assistant lose the person names NeuroDB knows, e-mail addresses, phone
-  numbers and links. An e-mail address goes whole however it is written out: with "at" and "dot" in
-  words, dashes or brackets ("x [ at ] example [ dot ] org"), or in capitals. In what you type (a
-  question to any assistant, the page's title, the words of a search), also letters that only look like
-  "at", and the word before "at" and a web address, unless it is a common word ("children at [link
-  withheld]"); your earlier questions are cleaned so again each time they are sent. Documents the AI
-  reads whole lose their e-mail addresses too.
+  numbers and links. In what you type (a question to any assistant, the page's title, the words of a
+  search), an e-mail address goes whole however it is written out: with "at" and "dot" in words, dashes,
+  brackets or quotes ("x [ at ] example [ dot ] org"), with an at sign and "dot", in capitals, with any
+  ending, with spaces around the dot, with letters that only look like "at" (styled, circled or from
+  another alphabet) or with characters nobody sees; the word before "at" and a web address goes too,
+  unless it names no one ("children at [link withheld]", "the dashboard at [link withheld]"). Your
+  earlier questions are cleaned so again each time they are sent. In notes, answers and action point
+  texts, an address goes whole when it is written with "dot", in brackets or dashes, with an at sign, in
+  capitals with AT, or with a common ending in lower case after any word but a common one; after a plain
+  word, a site's address in capitals, of another ending or with a space after its dot is taken as a link
+  only, so "published at" a site's address keeps its words.
+- **Documents the AI reads whole** (a document to review or summarise, a report's pages, a Word or text
+  CPD, the daily review's findings, the What's new note) lose their e-mail addresses by the same rule as
+  notes; links stay in them. A CPD in PDF is sent as the file, as it is.
 - **Ask NeuroDB** sends your question, the earlier questions and answers of the conversation and what it
   looks up, after taking out the people it can find: e-mail addresses, phone numbers, links, the full
   names of the people NeuroDB knows and any name after a title (see

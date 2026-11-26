@@ -87,7 +87,8 @@ takes out the people it can find:
 
 - e-mail addresses, also written out ("name at example dot org", "NAME AT" a web address in capitals) or
   with extra spaces or line breaks; in your question, also the word before "at" and a web address
-  unless it is a common word, and letters that only look like "at";
+  unless it names no one (a common word, or one such as "the dashboard"), and letters that only look
+  like "at";
 - web links (links to NeuroDB's own pages stay);
 - phone numbers, also split by extra spaces or a line break;
 - the full names of the people NeuroDB knows (its users, partner staff, focal points, the people eTools

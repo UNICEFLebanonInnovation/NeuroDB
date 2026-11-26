@@ -235,9 +235,17 @@ def _narrowed(ctx: ChatContext, **args: Any) -> Scope:
 
 
 def _dashboard(scope: Scope, **extra: str) -> str:
+    """The dashboard's address for ``scope``, as a look-up hands it to the model: the search words typed by
+    the person (``q``) cleaned as typed text (``privacy.clean_typed``: names, e-mail addresses written out
+    in any form, phone numbers and links), as the filter's words are (``facts.filters_text``)."""
     from urllib.parse import urlencode
 
-    return f"{reverse('fmm:dashboard')}?{urlencode([*scope.pairs(), *extra.items()])}"
+    names_ = privacy.names() if scope.q or any(key == "q" for key, _value in scope.drill) else frozenset()
+    pairs = [
+        (key, privacy.clean_typed(value, len(value) + 100, names_)[0] if key == "q" else value)
+        for key, value in [*scope.pairs(), *extra.items()]
+    ]
+    return f"{reverse('fmm:dashboard')}?{urlencode(pairs)}"
 
 
 def _visit_url(key: str) -> str:

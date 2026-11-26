@@ -301,6 +301,8 @@ def assert_clean(payload: Any, names_: frozenset[str]) -> None:
         text = people.visible(text)
         if people.EMAIL.search(text) or people.withhold_addresses(text) != text:  # written out too
             raise PrivacyRefused(f"an e-mail address at {where}")
+        if _page_query_holds_address(text):
+            raise PrivacyRefused(f"an e-mail address at {where}")
         if PHONE.search(text) or INTL_PHONE.search(text):
             raise PrivacyRefused(f"a phone number at {where}")
         if redact.LINK.search(text):
@@ -316,10 +318,26 @@ SITE_PATHS = ("/fmm/", "/partners/", "/programmes/")  # the only links a look-up
 
 
 def _safe_url(value: Any) -> bool:
+    """One of NeuroDB's own pages, whose query holds no e-mail address (:func:`_page_query_holds_address`)."""
     text = str(value or "")
     return (
-        text.startswith(SITE_PATHS) and not any(c.isspace() or c == "\\" for c in text) and "//" not in text
+        text.startswith(SITE_PATHS)
+        and not any(c.isspace() or c == "\\" for c in text)
+        and "//" not in text
+        and not _page_query_holds_address(text)
     )
+
+
+def _page_query_holds_address(text: str) -> bool:
+    """Whether a NeuroDB page's address (``/fmm/?q=...``) holds an e-mail address in its query, read as it is
+    written ("+" a space, "%5B" a bracket) and as typed text (``watch.people.withheld_address``: the search
+    words are the person's)."""
+    from urllib.parse import parse_qsl, urlsplit
+
+    if not text.startswith(SITE_PATHS) or "?" not in text:
+        return False
+    values = [value for _key, value in parse_qsl(urlsplit(text).query, keep_blank_values=True)]
+    return any(people.EMAIL.search(v) or people.withheld_address(v) for v in values)
 
 
 def _refilter(value: Any, names_: frozenset[str], urls: set[str]) -> Any:

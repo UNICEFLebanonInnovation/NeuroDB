@@ -394,31 +394,59 @@ come from.
   change.
 - **E-mail addresses written out** (`neurodb/watch/people.py`): one rule, first written for the KM
   Database's questions, takes an address however it is written, in every text any assistant sends.
+  Every character nobody sees goes first (Unicode's format characters: the zero-width ones, the
+  left-to-right and right-to-left marks and isolates of text copied from Arabic, and the joiners,
+  variation selectors and fillers).
   - *What a person types* gets the typed rule (`people.without_addresses`): a question of Ask NeuroDB, of
     the Monitoring insights chat, of the Help assistant or of the KM Database, each earlier question sent
     again, the Help page's title and the search words of a Monitoring insights filter. "x at example.org",
     "x(at)example.org", "x [ at ] example [ dot ] org", "x -at- example -dot- org", "x at example dot org",
-    "X AT EXAMPLE.ORG", "x at Example.Org", "x at mail.example.invalid" and "x at example. org" lose the
-    whole address, the name before "at" too, and so do letters that look like an address's (a Cyrillic
-    "а", a full-width "ａｔ" or "．") and characters nobody sees. A common word before "at" and a domain
-    stays ("children at [link withheld]"); any other word goes with the address. A question kept before
-    this rule, whose domain alone was taken as a link ("x at [link withheld]"), loses the name when it is
-    sent again (Monitoring insights chat, Help assistant).
+    "X AT EXAMPLE.ORG", "x at Example.Org", "x at mail.example.invalid", "x at example. org", "x at example
+    .org", "x @ example dot org", "x [@] example [dot] org", "x at example dot invalid", "x at
+    example[.]invalid", "x arobase example.org", "x 'at' example.org", "x *at* example.org", "x at-sign
+    example.org", "x at at example.org", "x at example period org" and "x-at-example-dot-org" lose the whole
+    address, the name before "at" too, and so do letters that look like an address's (a Cyrillic "а", a
+    full-width "ａｔ" or "．", mathematical, circled or small-capital letters; only letters, "." and "@":
+    "10³ km²" stays). A word that names no one before "at" stays and the domain goes as a link, its path
+    too: a common word ("children at [link withheld]") or a web address's word ("available", "published",
+    "the dashboard", "the guide", "the profile at [link withheld]"); any other word goes with the address,
+    and so does what is left of a path after it ("x at example.org/ops"). A domain's last part counts in
+    any case when it is a known ending (".org", ".lb", ".invalid"...), any other only in lower case and
+    when it is no word of a sentence, so that "at Mt.Lebanon", "at St.Joseph" and "at Akkar.No evidence"
+    stay. A question kept before this rule, whose domain alone was taken as a link ("x at [link
+    withheld]"), loses the name when it is sent again (Monitoring insights chat, Help assistant).
   - *Record and document texts* get the record rule (`people.withhold_addresses`): narratives, answers,
     look-up results, earlier answers, documents. An address ending in a common domain in lower case
-    (".org", ".com", ".lb"...) or written with "dot" goes whatever the word before "at"; before a domain
-    in capitals or of another ending, only when that word holds a full stop, "_", "+" or a digit or is in
-    capitals with "AT" ("x.y at Example.Org", "x_y at example.invalid", "X AT EXAMPLE.ORG"). So
-    "published at Example.Org", "located at Tyre.Net" and "at school.it was" keep their words (a domain
-    still goes as a link), and so does "x at Example.Org"; a web address after a plain word ("available
-    at www.unicef.org", "at unicef.org/lebanon") is a link, withheld as one; look-alike letters are read
-    as such only in typed text.
+    (".org", ".com", ".lb"...), also after a space ("x at example .org"), or written with "dot", "period"
+    or "[.]", with an at sign or "at" in brackets, quotes or stars, goes whatever the word before "at",
+    unless that word names no one, as above ("more at unicef.org", "the dashboard at data.unicef.org",
+    "available at www.unicef.org/lebanon": the domain and its path are left to the link rule, which
+    withholds them as a link). Before a domain in capitals, of another ending or with a space after its
+    dot, only when that word holds a full stop, "_", "+" or a digit or is in capitals with "AT" ("x.y at
+    Example.Org", "x_y at example.invalid", "X AT EXAMPLE.ORG", "x_y at example. org"). The last part of
+    a domain counts as for typed text, and a country's ending that is also a word ("x.y at example.it")
+    only after a name with a full stop, "_" or "+". So "published at Example.Org", "located at
+    Tyre.Net", "at school.it was", "at 2pm at Halba.We met", "DISTRIBUTION AT SITE.NO ISSUES" and "look at
+    the dot plot" keep their words (a domain still goes as a link), and so do "x at Example.Org", "x at
+    example. org" and "x at example.it" after a plain word; any other word before "at www." or a path
+    goes with the address ("x at example.org/ops", a list of focal points "x at example dot org/y at
+    example dot org"), and so does what is left of the path; look-alike letters are read as such only in
+    typed text.
   - *Texts sent whole* with no other cleaning (a document to review or summarise, a periodic report's
     pages, a Word or text CPD, a daily review finding, a What's new line) lose their addresses by the
-    record rule (`people.without_emails`); a text without one is sent exactly as it is, and a CPD in PDF
-    is sent as the file.
+    record rule (`people.without_emails`), so what it keeps by design goes as written there; a text
+    without one is sent exactly as it is, and a CPD in PDF is sent as the file, not cleaned.
+  - *The search words of a Monitoring insights filter* lose an address written in them, by the typed
+    rule, as soon as the filter is read (`fmm.scope.searched`): no visit's search text holds one, so the
+    same visits are found, and no filter kept (a chat question's, a brief's), shown, sent to the AI (the
+    filter line, the dashboard's address a look-up returns, whose search words are cleaned as typed text
+    too) holds one.
   - Monitoring insights' last check (`fmm.privacy.assert_clean`) stops a text that still holds an address
-    the record rule finds, and a prompt text holding one written out cannot be saved.
+    the record rule finds, or a NeuroDB page's address whose query holds one (read as written: "+" a
+    space, "%5B" a bracket), and the chat's filter drops such a page address; a prompt text holding an
+    address written out cannot be saved.
+  - Not read as an address: "at" and the dot in another language's words (the Arabic "على", the French
+    "point"), which ordinary sentences use.
 - **The answer is checked against its lookups** (`neurodb/assistant/figures.py`, from `agent._finish`):
   Monitoring insights' check of a chat answer (`neurodb/fmm/ai/citations.py`, some of whose parts it
   reuses) run on Ask's lookups, once the answer is written (the person sees the answer stream as it is
@@ -1150,7 +1178,8 @@ Where it shows:
   one note for everyone and one per section concerned, from the notable changes of the last 24 hours.
   With the assistant configured, the model writes two to five sentences from the change lines only
   (`store=false` on OpenAI, and Claude keeps no conversation either; names and figures as NeuroDB holds
-  them, no personal data, no e-mail address, written out or not); otherwise, or if it
+  them, no personal data, no e-mail address, written out too, by the record rule of *AI assistant*);
+  otherwise, or if it
   fails, the changes are listed. Run again the same day, the note is rewritten. Admin → Library and
   maps → *What's new notes*.
 - **By email**, when `EMAIL_URL` is set (SMTP, e.g. `smtp+tls://user:password@smtp.office365.com:587`;
@@ -6247,7 +6276,7 @@ else the children indicator furthest behind; the finding names it.
 
 **The summary.** With the AI assistant configured (an Anthropic or OpenAI key), the model reads only the
 day's findings and counts (titles, details and numbers; no staff names, and no e-mail address, written
-out or not; `store=false` on OpenAI, and
+out too, by the record rule of *AI assistant*; `store=false` on OpenAI, and
 Claude keeps no conversation either) and writes four to six plain sentences;
 tokens are recorded on the review. Without it, or when the call fails, a template writes the
 summary. Findings are prompts to look, never verdicts on partners or staff.
@@ -6515,7 +6544,8 @@ Sent (to the provider in use, api.anthropic.com or api.openai.com, over HTTPS; o
 - in a look-up, the allow-listed results of the tools above.
 
 Organisation names, PD numbers and grant, donor, section and document names are sent, as the daily
-review already does. Never sent: any person's name or email, written out too (the fields that hold one
+review already does. Never sent: any person's name or email, written out too, by the record rule of *AI
+assistant* (the fields that hold one
 are never read,
 and every text is checked against the list of names NeuroDB knows, in and out), the owner and note of
 a finding assignment, people's reactions and comments, a point's detail and evidence records, system
@@ -7843,7 +7873,9 @@ Nothing goes while `FMM_AI` is off. Once it is on, the brief and the chat send:
   shared safely"), and an error is logged without the text.
 - **The user's own chat question** is cleaned before it is sent and kept, and again when a follow-up
   sends it, by the typed rule for e-mail addresses written out (`privacy.clean_typed`, see *AI
-  assistant*); so are the search words of the filter in a brief's filter line.
+  assistant*); so are the search words of the filter, which lose an address as soon as the filter is
+  read (the brief's and the chat's filter line, a look-up's dashboard address, the filter a chat question
+  or a brief keeps).
 - **Ask NeuroDB** reads field monitoring without these limits on texts per answer, so it gets none:
   its `fm_*` look-ups return structured fields only (no notes, answers or snippets), and its generic
   eTools look-ups drop person keys and withhold long texts (see *AI assistant*, above).

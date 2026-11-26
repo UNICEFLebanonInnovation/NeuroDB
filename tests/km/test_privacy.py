@@ -505,7 +505,8 @@ def test_the_address_rule_is_neurodbs_shared_one():
     for form, written in FORMS.items():
         for text in (TYPED.format(written), RECORD.format(written), written, written.upper()):
             for typed in (False, True):
-                assert privacy._emails(text, typed) == people.withhold_addresses(text, typed), (form, text)
+                kept = people.withhold_addresses(text, typed, links=False)  # the KM Database's rule
+                assert privacy._emails(text, typed) == kept, (form, text)
             assert privacy.without_addresses(text) == people.without_addresses(text), (form, text)
         assert people.without_addresses(TYPED.format(written)) == TYPED.format(privacy.EMAIL_WITHHELD), form
     for form, written in RECORD_FORMS.items():

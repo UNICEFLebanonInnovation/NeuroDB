@@ -585,3 +585,42 @@ def test_no_written_out_address_reaches_the_look_up_or_the_morning_note():
         }
         found |= {f"{form} {where}": text for where, text in leaks(sent).items()}
     assert not found, json.dumps(found, ensure_ascii=False, indent=1)
+
+
+def test_addresses_joined_by_a_slash_or_before_a_path_go_whole():
+    """A list of focal points joined by "/" ("x at example dot org/y at example dot org") or an address
+    before a path ("x at example.org/ops"): every name goes, and so does the path, which may hold one."""
+    from tests.written_addresses import JOINED, left
+
+    for text in JOINED:
+        for sent in (redact.text(text, 500, frozenset()), people.without_emails(text)):
+            assert not left(sent), (text, sent)
+    assert redact.text("Contacts: zfakemira at example dot org/zaynafake at example dot org", 500, ()) == (
+        "Contacts: [email withheld]/[email withheld]"
+    )
+    assert redact.text("Email zfakemira at example.org/ops for details", 500, ()) == (
+        "Email [email withheld] for details"
+    )
+
+
+def test_every_character_nobody_sees_is_taken_out():
+    """Unicode's format characters (the marks of right-to-left text, the isolates, the zero-width ones),
+    the grapheme joiner, the vowel separator, the variation selectors and the Hangul fillers: an address or
+    a name with one inside is found as it reads."""
+    import unicodedata
+
+    hidden = [chr(c) for c in range(0x80, 0x30000) if unicodedata.category(chr(c)) == "Cf"]
+    hidden += ["͏", "ᅟ", "ᅠ", "᠋", "ㅤ", "️", "ﾠ", "\U000e0101"]
+    for char in hidden:
+        assert people.visible(f"zfake{char}mira") == "zfakemira", hex(ord(char))
+    assert people.visible("مرحبا‏ بكم") == "مرحبا بكم"  # the words of right-to-left text stay
+
+
+def test_a_typed_text_keeps_its_places_and_takes_a_web_address_whole():
+    """What a person types: a place written with an abbreviation or a sentence missing its space stays
+    ("at Mt.Lebanon", "at Akkar.No"), a web address after a word goes as a link with its path, and styled
+    letters are read as the plain ones only where they are letters ("10³ km²" stays)."""
+    from tests.written_addresses import TYPED_NOT_ADDRESSES
+
+    for text, sent in TYPED_NOT_ADDRESSES.items():
+        assert people.without_addresses(text) == sent, text

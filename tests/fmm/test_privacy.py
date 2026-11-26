@@ -784,6 +784,17 @@ def test_a_typed_text_loses_an_address_in_every_written_out_form():
     # a question kept before this rule, whose domain was taken as a link: its name goes when it is sent again
     for kept in ("contact zfakemira at [link withheld] soon", "contact zfakemira(at)[link withheld] soon"):
         assert privacy.clean_typed(kept, 100, frozenset())[0] == "contact [email withheld] soon"
+    # a place written with an abbreviation, a sentence missing its space: the question is sent as typed; a web
+    # address after a word goes as a link, its path too (a path may hold a name)
+    from tests.written_addresses import JOINED, TYPED_NOT_ADDRESSES, left
+
+    for text, sent in TYPED_NOT_ADDRESSES.items():
+        assert privacy.clean_typed(text, 1000, frozenset())[0] == sent, text
+    for text in JOINED:
+        assert not left(privacy.clean_typed(text, 1000, frozenset())[0]), text
+    assert privacy.clean_typed("Where is the guidance at [link withheld]?", 100, frozenset())[0] == (
+        "Where is the guidance at [link withheld]?"  # a question kept before: a web address's word stays
+    )
 
 
 def test_a_record_text_loses_a_written_out_address_and_keeps_its_sentences():
@@ -797,8 +808,15 @@ def test_a_record_text_loses_a_written_out_address_and_keeps_its_sentences():
         with pytest.raises(privacy.PrivacyRefused, match="e-mail address"):  # the last check stops it
             privacy.assert_clean({"text": RECORD.format(written)}, frozenset())
     for text, sent in NOT_ADDRESSES.items():
-        assert privacy.clean(text, 1000, frozenset())[0] == sent
+        assert privacy.clean(text, 1000, frozenset())[0] == sent, text
         privacy.assert_clean({"text": sent}, frozenset())
+    # addresses joined by a slash, or before a path: each goes whole, and the last check stops them
+    from tests.written_addresses import JOINED, left
+
+    for text in JOINED:
+        assert not left(privacy.clean(text, 1000, frozenset())[0]), text
+        with pytest.raises(privacy.PrivacyRefused, match="e-mail address"):
+            privacy.assert_clean({"text": text}, frozenset())
 
 
 def test_no_written_out_address_reaches_the_chat(built, viewer, client_viewer, monkeypatch):
@@ -918,3 +936,81 @@ def test_no_written_out_address_reaches_the_brief_the_checks_or_the_action_point
         }
         found |= {f"{form} {where}": text for where, text in leaks(sent).items()}
     assert not found, json.dumps(found, ensure_ascii=False, indent=1)
+
+
+def test_the_search_words_reach_no_look_up_and_no_kept_row(built, viewer, client_viewer, monkeypatch):
+    """The page's search words (the filter's ``q``), typed by the person: an address written out in them
+    reaches no look-up result (the dashboard's address a look-up returns, the filter it names), no request
+    to the model, and no row NeuroDB keeps (the chat question's filter, a brief's filter)."""
+    import json
+    import uuid
+    from urllib.parse import quote, unquote_plus
+
+    from django.http import QueryDict
+    from django.test import override_settings
+    from django.urls import reverse
+
+    from neurodb.assistant import agent
+    from neurodb.fmm.ai import insights, profiles
+    from neurodb.fmm.models import ChatQuestion, Insight
+    from neurodb.fmm.scope import Scope
+    from tests.assistant.test_assistant import FakeClient, call, reply, say
+    from tests.written_addresses import FORMS, TYPED, leaks, left
+
+    people.forget()
+    found = {}
+    with override_settings(**CHAT_ON):
+        version = profiles.published()
+        for form, written in FORMS.items():
+            q = f"year=2026&section=&q={quote(TYPED.format(written))}"
+            client = FakeClient(
+                [reply(call("fm_summary", {}, "c1"), call("fm_visits", {}, "c2")), reply(say("Done."))]
+            )
+            monkeypatch.setattr(agent, "client", lambda client=client: client)
+            data = {"question": "How many visits?", "scope": q, "conversation": str(uuid.uuid4())}
+            b"".join(client_viewer.post(reverse("fmm:chat_stream"), data).streaming_content)
+            outputs = [
+                i["output"] for i in client.requests[-1]["input"] if i.get("type") == "function_call_output"
+            ]
+            assert len(outputs) == 2, (form, client.requests[-1]["input"])
+            row = insights.record_refusal(
+                Scope.from_params(QueryDict(q)),
+                version,
+                viewer,
+                Insight.Trigger.USER,
+                (Insight.Status.SKIPPED, "switched off by an administrator"),
+            )
+            sent = {
+                "look-ups": unquote_plus(" ".join(outputs)),  # the dashboard's address read as written
+                "first request": json.dumps(client.requests[0], ensure_ascii=False),
+                "chat question's filter": json.dumps(
+                    list(ChatQuestion.objects.values_list("scope", flat=True)), ensure_ascii=False
+                ),
+                "brief's filter": json.dumps(row.scope, ensure_ascii=False),
+            }
+            # the instructions say "for example": only a name counts in the first request
+            found |= {
+                f"{form} {where}": text
+                for where, text in leaks(sent).items()
+                if not (where == "first request" and left(sent[where]) == "domain")
+            }
+            ChatQuestion.objects.all().delete()
+            Insight.objects.all().delete()
+    assert not found, json.dumps(found, ensure_ascii=False, indent=1)
+
+
+def test_a_look_up_s_page_address_holding_an_address_is_not_shared():
+    """The last check reads a NeuroDB page's address as it is written ("+" a space, "%5B" a bracket): an
+    address in its search words stops the look-up, and the chat's filter drops such a page address."""
+    for url in (
+        "/fmm/?year=2026&q=zfakemira+at+example+dot+org",
+        "/fmm/?year=2026&q=zfakemira+%5Bat%5D+example+%5Bdot%5D+org&tab=visits",
+        "/fmm/?year=2026&q=zfakemira%40example.org",
+    ):
+        with pytest.raises(privacy.PrivacyRefused, match="e-mail address"):
+            privacy.assert_clean({"url": url}, frozenset())
+        urls: set[str] = set()
+        assert "url" not in privacy._refilter({"url": url, "visits": 3}, frozenset(), urls) and not urls
+    kept = "/fmm/?year=2026&section=&q=registers&tab=visits"
+    privacy.assert_clean({"url": kept}, frozenset())
+    assert privacy._refilter({"url": kept}, frozenset(), set()) == {"url": kept}

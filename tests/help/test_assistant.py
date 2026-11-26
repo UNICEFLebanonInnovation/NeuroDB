@@ -522,3 +522,12 @@ def test_an_earlier_question_kept_before_the_address_rule_is_cleaned_again(on, m
     _events(_ask(client_viewer, "And then?", conversation))
     earlier = client.requests[0]["input"][0]["content"]
     assert earlier == "out of school children in Akkar, contact [email withheld] before June"
+
+
+def test_a_question_that_holds_no_address_is_sent_as_typed():
+    """A place written with an abbreviation ("Mt.Lebanon"), a sentence missing its space ("Akkar.No"): the
+    Help assistant sends the question as typed; a web address after a word goes as a link, its path too."""
+    from tests.written_addresses import TYPED_NOT_ADDRESSES
+
+    for text, sent in TYPED_NOT_ADDRESSES.items():
+        assert assistant.clean(text, 1000, frozenset()) == sent, text

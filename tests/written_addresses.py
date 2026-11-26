@@ -3,6 +3,7 @@
 sent to the AI. Shared by the tests of each assistant (Monitoring insights, Help, Ask NeuroDB, NeuroDB
 Watch, the daily review, What's new, the knowledge base, the KM Database)."""
 
+import re
 import unicodedata
 
 LOCAL = "zfakemira"
@@ -31,11 +32,53 @@ FORMS = {
     "F20 dotted name, Example.Org": f"{DOTTED} at Example.Org",
     "F21 underscore, .invalid": "zayna_fakemira at example.invalid",
     "F22 dotted name, at dot": f"{DOTTED} at example dot org",
+    # an at sign before a spelled dot, a spelled dot before any ending, a space before the dot
+    "F23 @ and dot": f"{LOCAL} @ example dot org",
+    "F24 [@] [dot]": f"{LOCAL} [@] example [dot] org",
+    "F25 @, dot com": f"{LOCAL}@example dot com",
+    "F26 dot .invalid": f"{LOCAL} at example dot invalid",
+    "F27 (at) (dot) .invalid": f"{LOCAL} (at) example (dot) invalid",
+    "F28 [.] .invalid": f"{LOCAL} at example[.]invalid",
+    "F29 underscore, dot .invalid": "zayna_fakemira at example dot invalid",
+    "F30 dot, a country's ending": f"{LOCAL} at example dot sy",
+    "F31 space before the dot": f"{LOCAL} at example .org",
+    "F32 underscore, spaced dot": "zayna_fakemira at example. org",
+    # every invisible character: the marks of right-to-left text, the isolates, the joiners
+    "F33 left-to-right mark": f"{LOCAL}\u200e@example.org",
+    "F34 right-to-left mark in at": f"{LOCAL} a\u200ft example.org",
+    "F35 isolates": f"\u2066{LOCAL}\u2069 at example.org",
+    "F36 right-to-left mark in the name": "zfake\u200fmira@example.org",
+    "F37 grapheme joiner": "zfake\u034fmira@example.org",
+    "F38 vowel separator": "zfake\u180emira@example.org",
+    "F39 invisible times": f"{LOCAL} a\u2062t example.org",
+    "F40 left-to-right mark after @": f"{LOCAL}@\u200eexample.org",
+    # styled letters (as a "fancy text" site writes them)
+    "F41 mathematical at": f"{LOCAL} \U0001d68a\U0001d69d example.org",
+    "F42 small capitals at": f"{LOCAL} \u1d00\u1d1b example.org",
+    "F43 circled at": f"{LOCAL} \u24d0\u24e3 example.org",
+    "F44 mathematical at, dot": f"{LOCAL} \U0001d68a\U0001d69d example \U0001d68d\U0001d698\U0001d69d org",
+    "F45 all mathematical": "".join(
+        chr(0x1D5EE + ord(c) - 97) if c.isalpha() else c for c in f"{LOCAL} at example.org"
+    ),
+    # more ways of writing "at" and the dot
+    "F46 arobase": f"{LOCAL} arobase example.org",
+    "F47 quoted at": f"{LOCAL} 'at' example.org",
+    "F48 starred at": f"{LOCAL} *at* example.org",
+    "F49 at-sign": f"{LOCAL} at-sign example.org",
+    "F50 slashed at": f"{LOCAL} /at/ example.org",
+    "F51 doubled at": f"{LOCAL} at at example.org",
+    "F52 period": f"{LOCAL} at example period org",
+    "F53 dashes": f"{LOCAL}-at-example-dot-org",
+    # a web address's shape: never an e-mail address's, but a name before "at" is still one
+    "F54 www": f"{LOCAL} at www.example.org",
+    "F55 a path after": f"{LOCAL} at example.org/ops",
+    "F56 a path after a spelled dot": f"{LOCAL} at example dot org/ops",
 }
 # What a record's or a document's text keeps by design (the record rule): a plain word before "at" and a
-# domain in capitals, of another ending or with a spaced dot ("published at Example.Org", "located at
-# Tyre.Net" stay), and look-alike letters, read as the plain ones only in what a person types
-RECORD_KEEPS = ("F09", "F11", "F12", "F13", "F14", "F15")
+# domain in capitals, of another ending or with a space after its dot ("published at Example.Org", "located
+# at Tyre.Net", "located at Tyre. Net" stay), and look-alike or styled letters, read as the plain ones only in
+# what a person types
+RECORD_KEEPS = ("F09", "F11", "F12", "F13", "F14", "F15", "F41", "F42", "F43", "F44", "F45")
 RECORD_FORMS = {form: written for form, written in FORMS.items() if form[:3] not in RECORD_KEEPS}
 # a sentence a person types, and one of a record or a document
 TYPED = "out of school children in Akkar, contact {} before June"
@@ -51,12 +94,65 @@ NOT_ADDRESSES = {
     "The guide is at UNICEF.ORG/report now.": "The guide is at [link withheld] now.",
     "The guide is at unicef.org/report now.": "The guide is at [link withheld] now.",
     "Reports are available at www.unicef.org/lebanon for all.": "Reports are available at [link withheld] for all.",
+    # a common word or a web address's word before "at": the domain goes as a link, the words stay
+    "Learn more at unicef.org.": "Learn more at [link withheld].",
+    "The dashboard at data.unicef.org was not updated.": "The dashboard at [link withheld] was not updated.",
+    "The guidance is available at unicef.org.": "The guidance is available at [link withheld].",
+    "Find it at mehe.gov.lb.": "Find it at [link withheld].",
+    "Is the data at data.unicef.org up to date?": "Is the data at [link withheld] up to date?",
+    "Children at school.info sessions were held for parents.": "Children at [link withheld] sessions were held for parents.",
+    "The tool is hosted at kobo.org.": "The tool is hosted at [link withheld].",
+    "Results are posted on the website at mehe.gov.lb.": "Results are posted on the website at [link withheld].",
+    # a time, an ordinal or a code before "at", and a sentence missing its space after a full stop
+    "The visit began at 2pm at Halba.We met the head teacher.": "The visit began at 2pm at Halba.We met the head teacher.",
+    "The session started at 10am at school.It was well attended.": "The session started at 10am at school.It was well attended.",
+    "Visit No.2 at Akkar.It was rescheduled.": "Visit No.2 at Akkar.It was rescheduled.",
+    "Follow-up planned for Q3 at Akkar.It will check the latrines.": "Follow-up planned for Q3 at Akkar.It will check the latrines.",
+    "DISTRIBUTION AT SITE.NO ISSUES REPORTED.": "DISTRIBUTION AT SITE.NO ISSUES REPORTED.",
+    "THE VISIT TOOK PLACE AT BAALBEK.IT WAS A GOOD VISIT.": "THE VISIT TOOK PLACE AT BAALBEK.IT WAS A GOOD VISIT.",
+    "Kits arrived at 9am at halba.no delays.": "Kits arrived at 9am at halba.no delays.",
+    "Teachers look at the dot plot each week.": "Teachers look at the dot plot each week.",
 }
+# questions a person types that hold no address, and how they are sent: a place written with an abbreviation,
+# a sentence missing its space, a web address after a word (withheld as a link, its path too)
+TYPED_NOT_ADDRESSES = {
+    "How many visits at Mt.Lebanon had red flags?": "How many visits at Mt.Lebanon had red flags?",
+    "What happened at Mt.Lebanon?": "What happened at Mt.Lebanon?",
+    "Show findings for schools at St.Joseph and Mar.Elias": "Show findings for schools at St.Joseph and Mar.Elias",
+    "The AP was closed at Akkar.No evidence received": "The AP was closed at Akkar.No evidence received",
+    "Can you look at the dot plot?": "Can you look at the dot plot?",
+    "How many children per 10\u00b3 km\u00b2 in Tyre?": "How many children per 10\u00b3 km\u00b2 in Tyre?",
+    "More children at example.org": "More children at [link withheld]",
+    "Where is the dashboard at neurodb.example.org/fmm?": "Where is the dashboard at [link withheld]?",
+    "How do I find the guide at www.unicef.org?": "How do I find the guide at [link withheld]?",
+    "Who wrote the profile at example.org/staff/layla-saab?": "Who wrote the profile at [link withheld]?",
+    "Which visits cite the report at example.org/reports/2024?id=5&owner=rhaddad": (
+        "Which visits cite the report at [link withheld]"
+    ),
+}
+# addresses joined by a slash (a list of focal points) or before a path: each goes whole
+JOINED = (
+    "Contacts: zfakemira at example dot org/zaynafake at example dot org",
+    "Contacts: zfakemira -at- example -dot- org/ops",
+    "Contacts: zfakemira (at) example (dot) org/ops",
+    "Contacts: zfakemira [at] example [dot] org/ops",
+    "Focal points: zfakemira at example.org/zaynafake at example.org.",
+    "Email zfakemira at example.org/ops for details",
+    "zfakemira at example dot org/",
+    "Contact: zfakemira at www.example.org",
+    "Write to zfakemira at example.org/staff/zaynafake for the data.",
+)
+
+
+# every character nobody sees, for reading what is left of an address (Unicode's format characters and the
+# other invisible marks), whichever ones the rules know
+_FORMAT = "".join(chr(c) for c in range(0x80, 0x30000) if unicodedata.category(chr(c)) == "Cf")
+_INVISIBLE = re.compile(f"[{_FORMAT}\u034f\u115f\u1160\u17b4\u17b5\u180b-\u180f\u3164\ufe00-\ufe0f\uffa0]")
 
 
 def left(sent: str) -> str:
     """What of the address is left in ``sent``: "whole", "name", "domain", or "" when nothing is."""
-    folded = unicodedata.normalize("NFKC", sent.replace("\u200b", "")).casefold()
+    folded = unicodedata.normalize("NFKC", _INVISIBLE.sub("", sent)).casefold()
     name = "fakemira" in folded
     domain = "example" in folded
     if name and domain:

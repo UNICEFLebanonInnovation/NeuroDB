@@ -1332,6 +1332,24 @@ def test_the_check_around_the_searched_words_agrees_with_the_whole_text_on_rando
                 assert around == (needle in whole), (dataset, needle, text)
 
 
+def test_a_search_never_finds_a_part_of_a_written_out_address(point):
+    """A search is judged on the text as Ask is sent it: a part of an address written out in any form the
+    record rule takes ("zayna_fakemira at example. org", "x @ example dot org", "x at example .org") is
+    never found, in a short text or around the searched words of a long one, letter by letter."""
+    from neurodb.datamart.query import Rules, Sent
+    from tests.written_addresses import FORMS, RECORD
+
+    filler = " ".join(["the partner ran sessions for children in the centre"] * 8)
+    for dataset in ("action_points", "fm_questions"):
+        sent = Sent(Rules(frozenset(), dataset, whole=True))
+        for form, written in FORMS.items():
+            for text in (RECORD.format(written), f"{filler} {RECORD.format(written)} {filler}"):
+                whole = query._clean_text(text, sent.rules, frozenset()).casefold()
+                for needle in ("zayna_fakem", "zfakemira", "fakemira", "zfake", "zfakeq", "before june"):
+                    around = sent.holds({"description": text}, frozenset(), "description", needle, False)
+                    assert around == (needle in whole), (dataset, form, needle, whole[:200])
+
+
 def test_the_benchmark_search_and_filters_stay_fast(point):
     """Not a measure of production: a guard that a search, a status equality and a sort on a few
     thousand records do not slow down by orders of magnitude (the full benchmark runs outside the suite)."""

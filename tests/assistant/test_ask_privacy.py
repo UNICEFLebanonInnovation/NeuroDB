@@ -673,3 +673,31 @@ def test_a_record_text_loses_a_written_out_address_and_keeps_its_sentences_in_as
     assert privacy.text("Write to zayna_fakemira  at  example.invalid now", frozenset()) == (
         "Write to [email withheld] now"
     )
+
+
+def test_addresses_joined_by_a_slash_or_before_a_path_go_whole_in_ask_and_the_raw_records(db):
+    """Ask's cleaner, the Raw eTools data page and its download (``raw_people.public_record``) and the
+    Monitoring insights cleaner: a list of focal points joined by "/", an address before a path or a web
+    address's "www.", a spelled dot ("-dot-", "(dot)", "[dot]"): every name before "at" goes."""
+    from neurodb.datamart.raw_people import public_record
+    from neurodb.fmm import privacy as fmm_privacy
+    from tests.written_addresses import JOINED, left
+
+    for text_ in JOINED:
+        shown, _withheld = public_record(
+            {"status": text_}, "pd_activities", frozenset(), reviewed=frozenset({"status"})
+        )
+        sent = {
+            "Ask": privacy.text(text_, frozenset()),
+            "Ask, an earlier answer": privacy.text(text_, frozenset(), label=True),
+            "Raw eTools data": json.dumps(shown, ensure_ascii=False),
+            "Monitoring insights": fmm_privacy.clean(text_, 1000, frozenset())[0],
+        }
+        assert not {where: t for where, t in sent.items() if left(t)}, (text_, sent)
+    assert privacy.text("Focal points: zfakemira at example.org/zaynafake at example.org.", frozenset()) == (
+        "Focal points: [email withheld]/[email withheld]."
+    )
+    from tests.written_addresses import TYPED_NOT_ADDRESSES
+
+    for text_, sent_ in TYPED_NOT_ADDRESSES.items():  # a question that holds no address is sent as typed
+        assert privacy.question(text_, frozenset()) == sent_, text_
