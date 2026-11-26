@@ -469,6 +469,8 @@ NATIONAL_USED = _("All of Lebanon, from your question: no place restriction.")
 NATIONAL_FIRST = _("All of Lebanon, from your question, with the findings that name {places} first.")
 BREAKDOWN_USED = _("By governorate, from your question: findings that name governorates first.")
 BY_DISTRICT_USED = _("By district, from your question: findings that name districts or governorates first.")
+# "and by district?" after a place: by the districts of that place
+BY_DISTRICT_WITHIN = _("By district within {places}: findings that name more of its districts first.")
 # "latest", "most recent": no finding, or few, of those years matched
 LATEST_NONE = _("No finding of {years} matches your words: the most recent ones were read, newest first.")
 LATEST_FEW = ngettext_lazy(
@@ -528,6 +530,7 @@ MISSING_FEW_PLACE = ngettext_lazy(
 )
 MISSING_YEARS = _("no finding of {years}")
 MISSING_BREAKDOWN = _("no finding read compares governorates")
+MISSING_DISTRICTS = _("no finding read compares the districts of {places}")
 NOTICE_NO_CITATION = _("This answer cites no finding: read it with care.")
 NOTICE_UNCITED = ngettext_lazy(
     "{count} sentence cites no finding: check it against the findings below.",

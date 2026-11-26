@@ -1144,6 +1144,27 @@ def governorate_alternatives() -> list[list[str]]:
     ]
 
 
+def _districts(key: str) -> list[str]:
+    """The districts (cazas) of place ``key``: a governorate's (never a camp), a district itself, none for a
+    town."""
+    place = BY_KEY[key]
+    if not place.governorates:
+        return [d.key for d in DISTRICTS if not d.district and not d.camp and key in d.governorates]
+    return [] if place.district or place.camp else [key]
+
+
+def districts_in(keys: list[str] | tuple[str, ...]) -> list[str]:
+    """The districts of the places ``keys`` (:func:`_districts`), each once."""
+    return list(dict.fromkeys(d for key in keys for d in _districts(key)))
+
+
+def district_alternatives(keys: list[str]) -> list[list[str]]:
+    """The districts of the places ``keys`` (:func:`districts_in`), each with its towns' and camps'
+    spellings: in a breakdown by district within a place ("and by district?" after Baalbek-Hermel), a
+    finding that names more of them ranks first."""
+    return [_pruned(written(d)) for d in districts_in(keys)]
+
+
 def _pruned(spellings: list[str]) -> list[str]:
     """``spellings`` without those that hold another one as a whole word ("akkar governorate" when "akkar" is
     there: the search finds both by the word), but for a word that does not find every text it is in
@@ -1189,16 +1210,23 @@ _PLURAL = re.compile(
 )
 
 
-def compares(text: str) -> bool:
+def compares(text: str, within: list[str] | tuple[str, ...] = ()) -> bool:
     """Whether a finding's ``text`` gives figures by governorate: it names two governorates or more (a
     district or a town as its governorate; "South Lebanon" as one), or speaks of governorates ("in all
-    governorates")."""
+    governorates"); by district ``within`` the places of those keys: it names two of their districts or more
+    (a town as its district), or speaks of districts or governorates."""
     if _PLURAL.search(text or ""):
         return True
+    districts = set(districts_in(within))
     named = set()
     for _s, _e, keys, _n in _claimed(f" {text or ''} "):
         place = BY_KEY[keys[0]]
-        named.add(place.governorates[0] if place.governorates else place.key)
+        if within:
+            district = place.district or (place.key if place.key in districts else "")
+            if district in districts:
+                named.add(district)
+        else:
+            named.add(place.governorates[0] if place.governorates else place.key)
     return len(named) >= 2
 
 

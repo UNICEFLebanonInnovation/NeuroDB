@@ -24,16 +24,21 @@ findings only, by one model call with no tools.
    name the place, the others that match are read after them, and the answer says so; for "latest", when
    under 10 match the years it sets, the newest others are read after them. Findings of one document with
    the same key finding are read once, each of their Finding IDs citable. In a conversation, a
-   **follow-up** (:meth:`Asked.follows`: under 4 words, a reference to the earlier answer such as "do it
-   for", "the text above", "what about", "now focus on", a rework of it that opens the question or a clause
-   ("revise the paragraph", "make it shorter", "this is good but can you shorten it"), or no subject of its
-   own: "I need it in Arabic", "is there an update this year?") keeps the subject, places and years the
-   earlier turns left (:func:`conversation`, up to 20 turns back) unless it names its own ("all Lebanon"
-   drops the place, "all governorates" asks for the breakdown instead), and reads the findings the previous
-   answer cited first. When nothing matches its own words with the earlier subject, its own words are read
-   alone: on a subject of their own ("child marriage", "what about ECD?") they are the next follow-up's
-   subject and the earlier answer's other findings are not read first; a rework's and a group of people's
-   ("and for girls?", "what about refugees?") stay angles on the earlier subject, and such an angle that
+   **follow-up** (:meth:`Asked.follows`: under 4 words unless a question of its own, "stunting in
+   Baalbek?"; a reference to the earlier answer such as "do it for", "the text above", "what about", "now
+   focus on", "and" with a group of people ("and children with disabilities?"), a rework of it that opens
+   the question or a clause ("revise the paragraph", "make it shorter", "this is good but can you shorten
+   it"), or no subject of its own: "I need it in Arabic", "is there an update this year?") keeps the subject,
+   places and years the earlier turns left (:func:`conversation`, up to 20 turns back, a question that
+   matched nothing too) unless it names its own ("all Lebanon" drops the place, "all governorates" asks for
+   the breakdown instead, "and by district?" breaks the earlier place down by its districts, "anything
+   newer?" reads the years after the earlier ones), and reads the findings the previous answer cited first.
+   A switch to another subject ("what about vaccination?", "vaccination instead") searches its words alone,
+   in the earlier place and years. When nothing matches its own words with the earlier subject, its own
+   words are read alone: on a subject of their own ("child marriage", "what about ECD?") they are the next
+   follow-up's subject and the earlier answer's other findings are not read first; a rework's and a group of
+   people's ("and for girls?", "what about refugees?") stay angles on the earlier subject (a group of people
+   replaces the earlier one of its kind: "and for girls?" after "and for boys?"), and such an angle that
    findings elsewhere join to the subject keeps it, the place widened. When fewer than 40 match, a word of
    the question matches no finding, or the question is not written in Latin letters, a small call asks for
    search words from the questions alone (they hold no data; any one of them in the place named); when it
@@ -197,7 +202,9 @@ REQUEST_STOP = frozenset(
     # the words of a request, of courtesy or urgency ("could you provide the available evidence on", "hi,
     # can u get me", "please prepare", "what is currently known", "among affected children", "info", "asap")
     "provide send get prepare present indicate available currently affected concerned comparison grateful "
-    "summarising summarizing info information hi hey hello dear asap urgent urgently lence".split()
+    "summarising summarizing info information hi hey hello dear asap urgent urgently lence "
+    # "the same thing for Bekaa"
+    "thing".split()
 )
 # words that only rank the findings that hold them first, never a word a finding must hold ("the trend in
 # child marriage": a finding on child marriage that gives no trend is read too)
@@ -370,6 +377,15 @@ REFERS = re.compile(
     re.IGNORECASE,
 )
 REWORKS_ANSWER = re.compile(REWORKS, re.IGNORECASE)
+# a switch to another subject ("what about vaccination?", "how about vaccination?", "vaccination instead", "do
+# the same for vaccination", "same for vaccination"): its own words, unless they name a group of people ("what
+# about girls?": an angle), are searched alone in the earlier place and years at once, and are the next
+# follow-up's subject (:func:`retrieve`)
+SWITCH = re.compile(
+    SWITCHES + r"|\b(?:do|repeat)\s+the\s+same(?:\s+thing)?\s+for\b|"
+    r"^\W*(?:and\s+)?(?:the\s+)?same(?:\s+thing)?\s+for\b",
+    re.IGNORECASE,
+)
 # the start of a follow-up that adds to the earlier answer ("and the trend?", "and by nationality?", "and for
 # girls?"): an angle on the earlier subject while findings elsewhere join them. Not "and what about child
 # marriage?", which asks what "what about child marriage?" asks
@@ -428,23 +444,23 @@ POPULATIONS = (
     "refugee refugees displaced syrian syrians palestinian palestinians lebanese migrant migrants host "
     "community communities stateless idp idps internally"
 ).split() + ["host community", "host communities", "internally displaced"]
+# the words of a group of people by kind (sex, age, disability, population): a follow-up's group of people
+# replaces the earlier ones of its kind ("and for girls?" after "and for boys?", "what about Syrian refugees?"
+# after "what about Palestinian refugees?"), never one of another kind ("and for girls?" after "what about
+# refugees?": refugee girls)
+PEOPLE_KINDS = {
+    "sex": frozenset(
+        [t.casefold() for f in cols.FLAGS if f.group == cols.SEX for t in f.triggers]
+        + [*GENDER, *GENDER_GROUP, "girls and boys", "boys and girls"]
+    ),
+    "age": frozenset(t.casefold() for f in cols.FLAGS if f.group == cols.AGE for t in f.triggers)
+    - AGE_SUBJECTS,
+    "disability": frozenset([*DISABILITY, "children with disabilities"]),
+    "population": frozenset(POPULATIONS),
+}
 # the words of a group of people ("girls", "boys", "gender", "disability", "adolescents", "refugees"): "what
 # about girls?" or "and for refugees?" asks about that group on the earlier subject, never a new subject
-PEOPLE = (
-    frozenset(
-        [t.casefold() for f in cols.FLAGS if f.group in (cols.AGE, cols.SEX) for t in f.triggers]
-        + [
-            *GENDER,
-            *GENDER_GROUP,
-            *DISABILITY,
-            "children with disabilities",
-            "girls and boys",
-            "boys and girls",
-        ]
-        + POPULATIONS
-    )
-    - AGE_SUBJECTS
-)
+PEOPLE = frozenset().union(*PEOPLE_KINDS.values())
 # a question asking for a number: the findings that give figures come first
 FIGURES = re.compile(
     r"%|\b(?:numbers?|rates?|percent(?:ages?)?|how\s+many|how\s+much|proportions?|prevalence|figures?|"
@@ -670,22 +686,30 @@ def prune() -> int:
 
 
 def history(user, conversation: uuid.UUID, version: KMVersion | None) -> list[dict[str, Any]]:
-    """The last answered turns of this conversation read from the version shown (an answer from an older
-    version is not sent again), oldest first: question, answer, the Finding IDs it cited and the words it
-    searched as a new subject. Up to :data:`CONVERSATION_TURNS`, so that reworks in between never lose the
-    subject, places and years an earlier question set (:func:`conversation`); the AI is sent the last
-    :data:`HISTORY_TURNS` only."""
+    """The last turns of this conversation read from the version shown (an answer from an older version is
+    not sent again) that were answered or matched nothing, oldest first: question, answer (none for a
+    question that matched nothing), the Finding IDs it cited (none either), the words it searched as a new
+    subject and its status. Up to :data:`CONVERSATION_TURNS`, so that reworks in between never lose the
+    subject, places and years an earlier question set (:func:`conversation`: "same for Akkar please" after a
+    question that matched nothing keeps its subject); the AI is sent the last :data:`HISTORY_TURNS` answered
+    ones only (:func:`prompt`)."""
     if version is None:
         return []
+    S = KMQuestion.Status
     rows = list(
         KMQuestion.objects.filter(
-            user=user, conversation=conversation, version=version, status=KMQuestion.Status.ANSWERED
+            user=user, conversation=conversation, version=version, status__in=(S.ANSWERED, S.NO_MATCH)
         )
         .order_by("-created_at")
-        .values("question", "answer", "cited", "new_subject")[:CONVERSATION_TURNS]
+        .values("question", "answer", "cited", "new_subject", "status")[:CONVERSATION_TURNS]
     )
     rows.reverse()
     return rows
+
+
+def _answered(earlier: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The earlier turns that were answered (never one that matched nothing: it has no answer to send)."""
+    return [t for t in earlier if t.get("status", KMQuestion.Status.ANSWERED) == KMQuestion.Status.ANSWERED]
 
 
 # --------------------------------------------------------------------------------------- filters in words
@@ -741,7 +765,8 @@ class Picked:
     (``places``, when findings had to name them), whether under :data:`FEW_IN_PLACE` did and the others were
     read too (``relaxed``: "none" or "few", ``in_place`` of them; "words": no finding holds a word of the
     question, the place's findings were read), all of Lebanon (``national``; with ``places``: the findings
-    naming them first), a breakdown by governorate (``breakdown``; asked by district: ``by_district``), the
+    naming them first), a breakdown by governorate (``breakdown``; asked by district: ``by_district``; by the
+    districts of the places named, ``within``: their keys), the
     years of the Year filter it set (``years``) and those that matched no finding (``years_missing``); for
     "latest", whether none or few findings of those years matched and the newest others were read
     (``recent``: "none" or "few", ``in_years`` of them). ``loose``: no finding matched both words of the
@@ -766,6 +791,7 @@ class Picked:
     national: bool = False
     breakdown: bool = False
     by_district: bool = False
+    within: list[str] = field(default_factory=list)
     years: str = ""
     years_missing: str = ""
     recent: str = ""
@@ -818,7 +844,9 @@ class Picked:
         elif self.national:
             found.append(str(words.NATIONAL_KEPT if kept_places else words.NATIONAL_USED))
         if self.breakdown:
-            if self.by_district:
+            if self.within:
+                found.append(say(words.BY_DISTRICT_WITHIN, places=self.places))
+            elif self.by_district:
                 found.append(str(words.BY_DISTRICT_KEPT if kept_places else words.BY_DISTRICT_USED))
             else:
                 found.append(str(words.BREAKDOWN_KEPT if kept_places else words.BREAKDOWN_USED))
@@ -834,7 +862,8 @@ class Picked:
 
     def missing(self, read: list[KMFinding]) -> list[str]:
         """What the search could not find, for a "partly" notice: the place, the years, a breakdown by
-        governorate (no finding of ``read``, the findings read, compares governorates)."""
+        governorate (no finding of ``read``, the findings read, compares governorates) or by the districts
+        of a place (none compares two of them; never asked of a place of one district: Akkar, Zahle)."""
         found = []
         if self.relaxed == "none":
             found.append(say(words.MISSING_PLACE, places=self.places))
@@ -842,8 +871,12 @@ class Picked:
             found.append(say(words.MISSING_FEW_PLACE, n=self.in_place, places=self.places))
         if self.years_missing or self.recent == "none":
             found.append(say(words.MISSING_YEARS, years=self.years_missing or self.years))
-        if self.breakdown and not any(places.compares(f"{f.key_finding} {f.measure}") for f in read):
-            found.append(str(words.MISSING_BREAKDOWN))
+        comparable = self.breakdown and (not self.within or len(places.districts_in(self.within)) > 1)
+        if comparable and not any(places.compares(f"{f.key_finding} {f.measure}", self.within) for f in read):
+            missing = (
+                say(words.MISSING_DISTRICTS, places=self.places) if self.within else words.MISSING_BREAKDOWN
+            )
+            found.append(str(missing))
         return found
 
     def read_line(self) -> str:
@@ -882,7 +915,11 @@ class Picked:
             parts.append(f"all of Lebanon, the findings naming {self.places} first")
         elif self.national:
             parts.append("all of Lebanon (no place)")
-        if self.breakdown:
+        if self.breakdown and self.within:
+            parts.append(
+                f"by district within {self.places} (the findings that name more of its districts first)"
+            )
+        elif self.breakdown:
             what = "districts or governorates" if self.by_district else "governorates"
             parts.append(
                 f"by {'district' if self.by_district else 'governorate'} (the findings that name "
@@ -1084,7 +1121,8 @@ TIME_FRAMES = tuple(
     )
 )  # fmt: skip
 # "anything newer", "anything more recent", "is there an update": the latest, unless the question names years
-# of its own ("is there an update this year?")
+# of its own ("is there an update this year?"); in a follow-up, the years after the earlier question's
+# (:meth:`TimeFrame.followed`)
 NEWER = re.compile(
     r"\b(?:(?:any|some)(?:thing)?\s+(?:newer|more\s+recent)\b|(?:any|some)thing\s+new\b|"
     r"what['’]?s\s+new\b|newer\b|more\s+recent\b|(?:an?|any|some|new|recent)\s+updates?\b)",
@@ -1114,10 +1152,23 @@ class TimeFrame:
     # the words of an event (never a place it names: "the 2020 Beirut port explosion" names Beirut): the words
     # searched when the question has no other ("the 2020 explosion", "children after the 2024 war")
     events: list[str] = field(default_factory=list)
+    # its years are those of "anything newer", "more recent" or "an update" alone (:data:`NEWER`): in a
+    # follow-up, the years after the earlier question's (:meth:`followed`)
+    newer: bool = False
 
     def with_compared(self, spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
         """``spans`` (an earlier question's years) with the years this one compares with."""
         return [*spans, *((y, y) for y in self.compared if (y, y) not in spans)] if spans else []
+
+    def followed(self, spans: list[tuple[int, int]], this: int) -> list[tuple[int, int]]:
+        """The years of a follow-up of a question of years ``spans`` (none: no time frame): "anything newer?"
+        the years after their last one up to ``this`` year (this year alone when they reach it; the latest
+        when there were none); its own years when it names them; else the earlier ones, with the years it
+        compares with ("and compared to 2019?")."""
+        if self.newer and spans:
+            last = max(end for _start, end in spans)
+            return [(min(last + 1, this), this)]
+        return list(self.spans or self.with_compared(spans))
 
     @property
     def latest(self) -> bool:
@@ -1154,8 +1205,9 @@ def time_frame(text: str, on: datetime.date) -> TimeFrame:
     "2023 and after" or "and later", "from 2023 on" up to this year; "after 2023" from 2024; "2019-2021",
     "2023/24", "between 2019 and 2021"; "in 2023", "2023" alone and each year of "in 2022 and 2025", "2022 vs
     2025"; "this year"; "latest", "most recent", "recent data", and with no year of its own "anything newer",
-    "anything more recent" or "an update": the past :data:`RECENT_YEARS` years. A year after next year
-    ("targets for 2030") or before a count of people or things ("2000 households") is no year. The year of an
+    "anything more recent" or "an update": the past :data:`RECENT_YEARS` years (in a follow-up, those after
+    the earlier question's: :meth:`TimeFrame.followed`). A year after next year ("targets for 2030") or
+    before a count of people or things ("2000 households") is no year. The year of an
     event ("the 2020 explosion", "after the 2024 war"; never "the 2024 figures", "the 2024 situation" or "the
     2024 school year") and the year compared with ("compared to 2019", "than 2019", "before the 2019 crisis")
     are no year either: they and the event's words only rank (:attr:`TimeFrame.ranks`: "after the 2020 port
@@ -1213,6 +1265,9 @@ def time_frame(text: str, on: datetime.date) -> TimeFrame:
         return [(this - RECENT_YEARS, this)]  # latest
 
     events: list[str] = []
+    # "anything newer?", "more recent?", "any update?" (read first: "more recent" is no "recent" of its own)
+    newer = bool(NEWER.search(text))
+    text = NEWER.sub(" ", text)
 
     def event_of(kind: str, match: re.Match) -> str:
         """The event of a year ("the 2020 port explosion": "port explosion"), its place's name left out
@@ -1242,13 +1297,14 @@ def time_frame(text: str, on: datetime.date) -> TimeFrame:
     if spans and compared:  # "in 2025 than in 2019": the year compared with is read too
         spans += [(y, y) for y in compared if (y, y) not in spans]
         kinds.add("compared")
-    if NEWER.search(text):  # "anything newer?": the latest, unless the question names its own years
-        text = NEWER.sub(" ", text)
-        if not spans:
-            spans.append((this - RECENT_YEARS, this))
-            kinds.add(LATEST)
+    newer = newer and not spans  # "anything newer?": the latest, unless the question names its own years
+    if newer:
+        spans.append((this - RECENT_YEARS, this))
+        kinds.add(LATEST)
     text = text.replace(_RANKED, " ")
-    return TimeFrame(text=text, spans=spans, kinds=kinds, ranks=ranks, compared=compared, events=events)
+    return TimeFrame(
+        text=text, spans=spans, kinds=kinds, ranks=ranks, compared=compared, events=events, newer=newer
+    )
 
 
 def _shapes_of(model, name: str) -> list[str]:
@@ -1968,8 +2024,8 @@ def _national(reading: places.Reading, groups: list[list[str]]) -> tuple[places.
 class Asked:
     """What a question says, read without the database: its time frame, the places it names, its own words
     (never a request's: :func:`_groups`; as a follow-up reads them: ``follow_groups``), whether it names a
-    Finding ID or a Document ID, whether it refers to the earlier answer (:data:`REFERS`), its age and sex
-    marks and how many words it has."""
+    Finding ID or a Document ID, whether it refers to the earlier answer (:data:`REFERS`), switches to another
+    subject (:data:`SWITCH`) or adds to it (:data:`ADDS`), its age and sex marks and how many words it has."""
 
     frame: TimeFrame
     reading: places.Reading
@@ -1980,6 +2036,7 @@ class Asked:
     words: int
     reworks: bool = False  # it asks to rework the earlier answer ("adjust the text above")
     adds: bool = False  # it adds to the earlier answer ("and the trend?": :data:`ADDS`)
+    switches: bool = False  # it switches to another subject ("what about vaccination?": :data:`SWITCH`)
     # its words as a follow-up reads them: never the answer's language, length, tone or readers ("the same in
     # Arabic", "I need it shorter": :data:`FOLLOW_UP_REQUEST`)
     follow_groups: list[list[str]] = field(default_factory=list)
@@ -1990,11 +2047,26 @@ class Asked:
         Database's subject in general words ("the situation of children": :data:`SUBJECT`)."""
         return bool(self.follow_groups) or self.ids or bool(SUBJECT.search(self.reading.text))
 
+    @property
+    def own_question(self) -> bool:
+        """Whether it is a question of its own, however short: words of a subject that are no group of people,
+        with a place, all of Lebanon, a breakdown or years of its own (never "anything newer", which asks
+        after the earlier ones), and no "and" that adds to the earlier answer ("child marriage Akkar",
+        "stunting in Baalbek?", "child marriage 2024")."""
+        years = bool(self.frame.spans) and not self.frame.newer
+        placed = self.reading.keys or self.reading.national or self.reading.breakdown or years
+        people = _people_only(self.follow_groups)
+        return bool(self.follow_groups) and not people and bool(placed) and not self.adds
+
     def follows(self) -> bool:
-        """In a conversation, a follow-up: short, a reference to the earlier answer, or no subject of its own
+        """In a conversation, a follow-up: a reference to the earlier answer, "and" with a group of people of
+        any length ("and children with disabilities?", "and Syrian refugee children?"), no subject of its own
         (only places, years, codes or the words of a request: "can u do it for all lebanon?", "I need it in
-        Arabic", "is there an update this year?")."""
-        return self.words < FOLLOW_UP_WORDS or self.refers or not self.subject
+        Arabic", "is there an update this year?"), or short unless a question of its own
+        (:attr:`own_question`)."""
+        if self.refers or (self.adds and _people_only(self.follow_groups)) or not self.subject:
+            return True
+        return self.words < FOLLOW_UP_WORDS and not self.own_question
 
 
 def _uncoded(text: str) -> str:
@@ -2019,6 +2091,20 @@ def _people_only(groups: list[list[str]]) -> bool:
     return bool(groups) and all(any(alt.casefold() in PEOPLE for alt in g) for g in groups)
 
 
+def _kinds(group: list[str]) -> set[str]:
+    """The kinds of group of people ``group`` names (:data:`PEOPLE_KINDS`: "sex" for girls, "population" for
+    refugees), none for a word of a subject."""
+    return {kind for kind, said in PEOPLE_KINDS.items() if any(alt.casefold() in said for alt in group)}
+
+
+def _unreplaced(earlier: list[list[str]], own: list[list[str]]) -> list[list[str]]:
+    """``earlier`` groups without the groups of people of a kind one of ``own`` names: "and for girls?" after
+    "and for boys?" (or after "out of school boys") reads girls, never girls and boys; groups of another kind
+    stay ("and for girls?" after "what about refugees?")."""
+    named = set().union(*(_kinds(g) for g in own)) if own else set()
+    return [g for g in earlier if g in own or not _kinds(g) & named]
+
+
 def understand(text: str, typed: str, shapes: list[str] | tuple[str, ...] = ()) -> Asked:
     """:class:`Asked` of a question: ``text`` without its codes (searchable), ``typed`` as typed."""
     frame = time_frame(text, today())
@@ -2039,17 +2125,18 @@ def understand(text: str, typed: str, shapes: list[str] | tuple[str, ...] = ()) 
         words=len((typed or "").split()),
         reworks=reworks,
         adds=bool(ADDS.search(text)),
+        switches=bool(SWITCH.search(_clauses(text))),
         follow_groups=follow_groups,
     )
 
 
 @dataclass
 class Topic:
-    """The subject a conversation's last answered turns leave: the words of the question that set it
-    (``subject``: those a follow-up searched as its own subject when none joined the earlier one, kept on its
-    row), those its follow-ups added (``angles``: "with a lens on gender", "and for boys?"), its places and
-    years (a follow-up keeps the earlier ones, unless it names its own), their age and sex marks, and the
-    Finding IDs the last answer cited."""
+    """The subject a conversation's earlier turns leave: the words of the question that set it (``subject``:
+    those a follow-up searched as its own subject, a switch to another subject or when none joined the earlier
+    one, kept on its row), those its follow-ups added (``angles``: "with a lens on gender", "and for boys?"),
+    its places and years (a follow-up keeps the earlier ones, unless it names its own), their age and sex
+    marks, and the Finding IDs the last answer cited."""
 
     subject: list[list[str]]
     angles: list[list[str]]
@@ -2058,26 +2145,44 @@ class Topic:
     marks: list[str]
     cited: list[str] = field(default_factory=list)
     latest: bool = False  # its years are those of "latest" (:attr:`TimeFrame.latest`)
+    newer: bool = False  # those after an earlier question's ("anything newer?": :meth:`TimeFrame.followed`)
 
 
 def _placed(before: places.Reading, own: places.Reading) -> tuple[places.Reading, bool]:
     """The places of a follow-up: its own (a place, all of Lebanon, a breakdown by governorate), else the
-    earlier question's; and whether they are the earlier question's."""
-    if own.keys or own.national or own.breakdown:
+    earlier question's; and whether they are the earlier question's. A breakdown by district with no place of
+    its own after a place ("and by district?" after Baalbek-Hermel) is by the districts of that place."""
+    if own.keys or own.national:
+        return own, False
+    if own.breakdown:
+        if own.by_district and before.restricted:  # "and by district?": the earlier place, by its districts
+            return replace(before, text=own.text, breakdown=True, by_district=True), True
         return own, False
     kept = bool(before.keys or before.national or before.breakdown)
     return replace(before, text=own.text), kept
 
 
+def _switched(own: Asked, own_angles: list[list[str]]) -> bool:
+    """Whether a follow-up switches to another subject that is no group of people ("what about
+    vaccination?", "vaccination instead"; never "what about girls?", nor a rework): its words are searched
+    alone, in the earlier place and years."""
+    return own.switches and bool(own_angles) and not (own.reworks or _people_only(own_angles))
+
+
 def _merged(before: Topic, own: Asked) -> Topic:
-    angles = own.follow_groups + [g for g in before.angles if g not in own.follow_groups]
+    """The topic a follow-up leaves (a switch to another subject is the subject its row keeps:
+    :func:`conversation`)."""
+    own_angles = own.follow_groups
+    angles = own_angles + [g for g in _unreplaced(before.angles, own_angles) if g not in own_angles]
+    subject = [g for g in _unreplaced(before.subject, own_angles) if g not in angles]
     return Topic(
-        subject=[g for g in before.subject if g not in angles],
+        subject=subject,
         angles=angles,
         reading=_placed(before.reading, own.reading)[0],
-        spans=list(own.frame.spans or own.frame.with_compared(before.spans)),
+        spans=own.frame.followed(before.spans, today().year),
         marks=own.marks + [m for m in before.marks if m not in own.marks],
         latest=own.frame.latest if own.frame.spans else before.latest,
+        newer=(own.frame.newer and bool(before.spans)) if own.frame.spans else before.newer,
     )
 
 
@@ -2089,11 +2194,12 @@ def _stored_groups(value: Any) -> list[list[str]]:
 
 
 def conversation(earlier: list[dict[str, Any]], shapes: list[str] | tuple[str, ...] = ()) -> Topic | None:
-    """The subject the conversation's earlier answered turns (:func:`history`, oldest first) leave: each turn
-    that is a follow-up of the ones before (:meth:`Asked.follows`) keeps their subject, places and years
-    unless it names its own (a follow-up whose own words were searched as its subject, ``new_subject``, makes
-    them the subject); any other starts a new subject. None without an earlier turn. Read from the cleaned
-    questions and what their rows keep only (no query)."""
+    """The subject the conversation's earlier turns (:func:`history`, oldest first: those answered and those
+    that matched nothing) leave: each turn that is a follow-up of the ones before (:meth:`Asked.follows`)
+    keeps their subject, places and years unless it names its own (a follow-up whose own words were searched
+    as its subject, ``new_subject``, makes them the subject; a group of people replaces the earlier ones of
+    its kind); any other starts a new subject. None without an earlier turn. Read from the cleaned questions
+    and what their rows keep only (no query)."""
     topic = None
     for turn in earlier:
         question = turn.get("question") or ""
@@ -2141,6 +2247,10 @@ def retrieve(
     follow_up = before is not None and own.follows()
     kept: list[str] = []
     frame = own.frame
+    # "anything newer?": the years after the earlier ones (the newest others read only when none matches)
+    newer = follow_up and frame.newer and bool(before.spans)
+    if newer:
+        frame = replace(frame, spans=frame.followed(before.spans, today().year))
     page_years = scope.year  # the Year filter of the page, before the question's
     scope, years = _years(frame, scope, found, left_out)
     latest = frame.latest and bool(years)
@@ -2149,7 +2259,7 @@ def retrieve(
         scope, years = _years(kept_frame, scope, found, left_out, said=False)
         if years:
             kept.append("years")
-            latest = before.latest
+            latest, newer = before.latest, before.newer
     base = scope.apply(KMFinding.objects.all())
     shapes = list(shapes)
     first, document, text = _by_ids(frame.text, base, shapes)
@@ -2176,16 +2286,22 @@ def retrieve(
     # a follow-up's own words on a subject of their own ("what about child marriage?", "child marriage",
     # "and for child labour?", "what about ECD?"): never a rework's, nor a group of people's ("and for
     # girls?", "what about refugees?"), which stay angles on the earlier subject, nor the earlier angles of a
-    # follow-up with no word of its own ("and in the North?", "can u do it for all lebanon?")
-    new_subject = False
+    # follow-up with no word of its own ("and in the North?", "can u do it for all lebanon?"). A switch to
+    # them ("what about vaccination?", "vaccination instead": ``switched``) searches them alone at once
+    new_subject = switched = False
     if follow_up:  # the earlier subject, angles, places and years, unless the question names its own
         own_angles = [g for g in current if g != breakdown]
         new_subject = bool(own_angles) and not (own.reworks or _people_only(own_angles))
-        angles = own_angles + [g for g in before.angles if g not in own_angles]
-        subject = [g for g in before.subject if g not in angles]
+        switched = new_subject and _switched(own, own_angles)
+        if not switched:  # a group of people replaces the earlier ones of its kind ("and for girls?")
+            angles = own_angles + [g for g in _unreplaced(before.angles, own_angles) if g not in own_angles]
+            subject = [g for g in _unreplaced(before.subject, own_angles) if g not in angles]
+        else:
+            angles = list(own_angles)
         if subject or len(angles) > len(own_angles):
             kept.insert(0, "subject")
-        boost += [b for b in before.marks if b not in boost]
+        if not switched:
+            boost += [b for b in before.marks if b not in boost]
         reading, kept_places = _placed(before.reading, reading)
         if kept_places:
             kept.insert(len(kept) - ("years" in kept), "places")
@@ -2205,6 +2321,11 @@ def retrieve(
     # match more of the subject first, then those naming more governorates
     by_governorate = breakdown if breakdown in all_groups else None
     spread = places.governorate_alternatives() if by_governorate else []
+    # a breakdown by district within a place ("and by district?" after Baalbek-Hermel): the findings that name
+    # more of its districts first
+    within = reading.keys if by_governorate and reading.restricted else []
+    if within:
+        spread = places.district_alternatives(within)
     ranks = [*frame.ranks, *_rank_only(text)]  # an event's words, "trend": they only rank
     cap = MAX_FINDINGS if scope.document else MAX_PER_DOCUMENT
     asked_text = unsent(cleaned or typed, shapes, scope.document)
@@ -2218,6 +2339,7 @@ def retrieve(
         national=reading.national,
         breakdown=bool(by_governorate),
         by_district=reading.by_district,
+        within=list(within),
         years=years,
         years_missing=frame.label if frame.spans and not years else "",
         follow_up=follow_up,
@@ -2281,7 +2403,11 @@ def retrieve(
                 searched = [g for g, held in zip(words_of, holds, strict=True) if held]
                 searched_topic = sum(holds[:topic])
         angles_held: list[list[str]] = []
-        if follow_up:
+        alone = switched  # its own words searched alone, on a subject of their own
+        if switched:  # its own words alone, as a first question searches them
+            searched = [g for g in angles if g in searched]
+            need, shape = need_of(len(searched)), {}
+        elif follow_up:
             # one of its angles at least (any is enough), with the earlier subject's own quorum (with an
             # angle, one of a 2-group subject)
             angles_held = [g for g in angles if g in searched]
@@ -2298,9 +2424,9 @@ def retrieve(
         if not picked.matched and need > 2:  # none matches a third: 2 groups are enough
             shape = {**shape, "need": 2, "topic": 0}
             run(*quorum(base, searched, boost, required=required, **shape, **ask_for))
-        if not picked.matched and not follow_up and len(searched) == 2 and need == 2:
-            # none matches both words ("a lens on gender, and disability"): one of them is enough (never
-            # "national" alone)
+        if not picked.matched and not angles_held and len(searched) == 2 and need == 2:
+            # none matches both words ("a lens on gender, and disability"; a follow-up of no word of its own
+            # on such a subject, a switch to one): one of them is enough (never "national" alone)
             either = [g for g in searched if g != adjective]
             picked.loose = bool(run(*quorum(base, either, boost, required=required, need=1, **ask_for)))
         if (
@@ -2325,17 +2451,22 @@ def retrieve(
             if not run(*quorum(base, searched, boost, required=required, **ask_for)) and len(searched) == 2:
                 either = [g for g in searched if g != adjective]  # never "national" alone
                 picked.loose = bool(run(*quorum(base, either, boost, required=required, need=1, **ask_for)))
-            if new_subject:
-                said = cleaned or privacy.clean_question(typed, people)
-                # as typed: a word read for a misspelt one is the version's (it may be any word of its texts),
-                # never kept on a row
-                typed_groups = [unfixed.get(tuple(g), g) for g in searched]
-                picked.new_subject = _new_subject(typed_groups, before.angles, said, loose=picked.loose)
+            alone = new_subject
             if "subject" in kept:
                 kept.remove("subject")
-            if again and new_subject:
-                # the earlier answer's findings stay first only when they are on the angles: the others are on
-                # another subject ("what about child marriage?" after out of school children)
+        if alone and searched:  # searched alone on a subject of its own: the next follow-up's subject
+            said = cleaned or privacy.clean_question(typed, people)
+            # as typed: a word read for a misspelt one is the version's (it may be any word of its texts),
+            # never kept on a row; never words no finding of the version holds ("what about Zorvex?": the next
+            # follow-up goes back to the earlier subject)
+            held = alive(KMFinding.objects.all(), searched)
+            typed_groups = [
+                unfixed.get(tuple(g), g) for g, known in zip(searched, held, strict=True) if known
+            ]
+            picked.new_subject = _new_subject(typed_groups, before.angles, said, loose=picked.loose)
+            if again:
+                # the earlier answer's findings stay first only when they are on the new subject: the others
+                # are on another one ("what about child marriage?" after out of school children)
                 on = base.filter(pk__in=[f.pk for f in again]).filter(reduce(or_, [hit(g) for g in searched]))
                 on_angles = set(on.values_list("pk", flat=True))
                 first = [f for f in first if f not in again or f.pk in on_angles]
@@ -2347,7 +2478,7 @@ def retrieve(
             if run(*quorum(base, searched, boost, **shape, **wide)):
                 picked.relaxed, picked.in_place = ("few" if in_place else "none"), in_place
                 place = None  # the search words below are looked for everywhere too
-        if latest and picked.matched < FEW_IN_PLACE:  # "latest": none or few of those years, the newest
+        if latest and picked.matched < (1 if newer else FEW_IN_PLACE):  # "latest": none or few, the newest
             unyeared = replace(scope, year=page_years)
             wide_base = unyeared.apply(KMFinding.objects.all())
             in_years = picked.matched
@@ -2643,7 +2774,7 @@ def prompt(
     # in any case, which a question kept before that rule may hold
     question_line = f"Question: {_esc(privacy.any_case(question, people))}"
     turns = []
-    recent = earlier[-HISTORY_TURNS:]
+    recent = _answered(earlier)[-HISTORY_TURNS:]
     for n, turn in enumerate(recent, 1):
         size = LAST_ANSWER_CHARS if n == len(recent) else HISTORY_ANSWER_CHARS  # the last: it may be reworked
         answer = _cut(privacy.for_ai(turn.get("answer") or "", people), size)

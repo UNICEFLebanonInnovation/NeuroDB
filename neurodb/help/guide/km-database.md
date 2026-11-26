@@ -243,9 +243,10 @@ download the findings it read.
 - **A conversation.** A follow-up keeps the subject, places and years of your earlier question and reads
   the findings its answer cited again. A question is a follow-up when it is short ("and for boys?"), when
   it refers to the answer ("do it for all Lebanon", "adjust the text above", "the same for Akkar", "redo",
-  "what about child marriage?", "and for girls", "now with a focus on boys", "now focus on refugees",
-  "focus on girls instead"), when it asks to rework the answer in any words, at its start, after a mark or
-  after praise ("revise the paragraph for girls", "rephrase the answer in simpler words", "make
+  "what about child marriage?", "and for girls", "and children with disabilities?", "and Syrian refugee
+  children?", "now with a focus on boys", "now focus on refugees", "focus on girls instead"), when it asks
+  to rework the answer in any words, at its start, after a mark or after praise ("revise the paragraph for
+  girls", "rephrase the answer in simpler words", "make
   it shorter", "make it more detailed", "can you elaborate on this?", "give more details", "summarise it
   in bullet points", "convert it to a table", "write it for a donor audience", "the same answer but with
   a gender lens", "translate it to Arabic", "translate everything into Arabic", "in French please", "this
@@ -259,30 +260,41 @@ download the findings it read.
   ("why did enrolment fall again?", "why are boys sent to work instead?", "is there an update this year on
   child marriage?", "translate the key findings on child marriage into Arabic", "give me the number of out
   of school children in lebanon and break it down by governorate", "Focusing on Akkar, what are the main
-  barriers to education?"), starts afresh. Words such
+  barriers to education?"), starts afresh, and so does a short question with a subject and a place or
+  years of its own ("stunting in Baalbek?", "child marriage Akkar", "child marriage 2024"; "child marriage"
+  alone or "girls in Akkar?" stay follow-ups). A question that matched no finding counts in the
+  conversation too: "same for Akkar please" after it keeps its subject. Words such
   as "Arabic", "informal", "focus" or "points" are searched as any other ("Arabic literacy", "informal
   settlements", "water points"), except in a request to rework the answer or to have it in another
   language or length. When no finding of the place joins a follow-up's own words to the earlier subject,
   a group of people ("and for girls?", "what about girls?", "what about refugees?") or an addition ("and
   the trend?", "and by nationality?") that findings elsewhere join keeps the subject, and the findings of
   all of Lebanon are read; otherwise its own words
-  are read alone, in the earlier place and years. A follow-up's own words on a subject of their own ("what
+  are read alone, in the earlier place and years. A switch to another subject ("what about vaccination?",
+  "how about vaccination?", "vaccination instead", "do the same for vaccination" after a question on child
+  marriage in Akkar) reads that subject alone in the earlier place and years at once, never only the
+  findings that hold the earlier subject too. A follow-up's own words on a subject of their own ("what
   about child marriage?", "child marriage", "and for child labour?", "what about ECD?" after a question on
   Tripoli: that subject in Tripoli) become the subject of the next follow-up, as they were read (when a
   finding with one of its words was enough, so it is next time), and the earlier answer's findings on
   another subject are not read first; a rework or a group of people (girls, boys, an age group, disability,
   refugees, displaced, Syrian, Palestinian or migrant children, the host community) stays an angle on the
-  earlier subject. A follow-up with no words of its own ("can you do it for all governorates?", "can
-  you do it for all Lebanon?" after a question on a place) is answered from the earlier subject, and counts
-  like any question. Its own place, years, "all Lebanon" (no place) or "all governorates" (findings that
-  name a governorate) replace the earlier ones; its own words are angles added to the subject ("with a lens
-  on gender, and disability": a finding on either). The places and years of an earlier question are kept
-  however many reworks come between (the last 20 answered questions of the conversation are read for
-  them; the AI is sent the last 4). The line under the answer says what was kept. You can ask to rewrite
-  the previous answer (another angle, place, period, length, form or language): it is rewritten from the
-  findings it cited, read again, keeping their references, and never from the earlier answer alone. A
-  short question on a new topic ("Child marriage?") that no finding joins to the earlier subject reads its
-  own findings. **New conversation** starts afresh. **Your recent questions** lists your last ten; press
+  earlier subject. A group of people replaces the earlier one of its kind ("and for girls?" after "and for
+  boys?" reads girls, not girls and boys); groups of other kinds add up ("and for girls?" after "what about
+  refugees?": refugee girls). A follow-up with no words of its own ("can you do it for all governorates?",
+  "can you do it for all Lebanon?" after a question on a place) is answered from the earlier subject, and
+  counts like any question. Its own place, years, "all Lebanon" (no place) or "all governorates" (findings
+  that name a governorate) replace the earlier ones; "and by district?" after a place reads that place by
+  its districts (the findings that name more of them first); "anything newer?", "more recent?" or "any
+  update?" reads the years after the earlier ones up to this year (the newest findings when none is newer,
+  and the line says so); its own words are angles added to the subject ("with a lens on gender, and
+  disability": a finding on either). The places and years of an earlier question are kept however many
+  reworks come between (the last 20 questions of the conversation that were answered or matched nothing
+  are read for them; the AI is sent the last 4 answered ones). The line under the answer says what was
+  kept. You can ask to rewrite the previous answer (another angle, place, period, length, form or
+  language): it is rewritten from the findings it cited, read again, keeping their references, and never
+  from the earlier answer alone. A short question on a new topic ("Child marriage?") that no finding joins
+  to the earlier subject reads its own findings. **New conversation** starts afresh. **Your recent questions** lists your last ten; press
   one to ask it again. Your questions are kept 90 days.
 - The AI can be wrong: open the findings it cites before you use an answer.
 

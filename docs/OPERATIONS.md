@@ -1691,7 +1691,8 @@ asked). In order:
      "prevalence", "figures", "statistics", "share", "estimate"), and the words of a request, of courtesy or
      of urgency as people write them ("provide", "send", "get", "share", "prepare", "present", "indicate",
      "available", "currently", "affected", "concerned", "comparison", "grateful", "summarising", "info",
-     "information", "hi", "hey", "hello", "dear", "asap", "urgently", "lence" for "lens"; `ask.REQUEST_STOP`),
+     "information", "hi", "hey", "hello", "dear", "asap", "urgently", "lence" for "lens", "thing" of "the same
+     thing for Bekaa"; `ask.REQUEST_STOP`),
      an answer's shape ("a short table", "a brief note", "a short summary", "a brief overview":
      `ask.REQUEST_PHRASES`) and "address" as a verb (opening the question or a clause, or after "that",
      "which", "who" or "to": "the studies that address stunting"; "birth registration address" keeps it:
@@ -1752,10 +1753,12 @@ asked). In order:
      count as read, and can be cited (linked and listed under the answer). The same text in two documents
      is two findings, each sent with its own document and year. Each pass reads twice the findings it
      needs, so that copies leave room.
-   - **A follow-up.** In a conversation, a question is a follow-up when it has under 4 words, when it refers
-     to the earlier answer ("do it for", "do the same", "same for", "the same answer", "the text above", "the
-     previous answer", "what about", "how about", a question starting with "and for", "and in", "now with",
-     "now for"..., "now focus on", "with a focus on" when the lens is the whole question, "now focus on
+   - **A follow-up.** In a conversation, a question is a follow-up when it has under 4 words (unless it is a
+     question of its own: below), when it refers to the earlier answer ("do it for", "do the same", "same
+     for", "the same answer", "the text above", "the previous answer", "what about", "how about", a question
+     starting with "and for", "and in", "now with", "now for"..., "and" with a group of people of any length:
+     "and children with disabilities?", "and Syrian refugee children?", "and adolescent girls in Akkar?";
+     "now focus on", "with a focus on" when the lens is the whole question, "now focus on
      refugees", "with a focus on refugees please", never "Focusing on Akkar, what are the main barriers to
      education?" or "focus on child labour in the Bekaa: what do the studies say?"; one ending with "instead"
      that opens with no question word: "focus on girls instead"), when it asks to rework that answer, whatever
@@ -1789,51 +1792,79 @@ asked). In order:
      inside a question or closing one that opens with a question word ("why are boys sent to work instead?"),
      "the list of", a leading "and" before a question of its own ("Is free education for all children
      achieved?", "Why did enrolment fall again?", "How did families adjust to the crisis?", "Do girls work
-     instead of studying?" and "the situation of children for all governorates" start afresh). A question that
-     names the KM Database's subject in general words ("the situation of children", "children"), a Finding ID
-     or a Document ID has a subject of its own. The earlier answered turns of the conversation
-     (`ask.conversation`, from their cleaned questions and what their rows keep, no query) leave a subject:
-     the words of the question that set it, the angles its follow-ups added ("with a lens on gender", "and for
-     boys?"), its places and its years. A follow-up keeps them unless it names its own: a place of its own
-     replaces the earlier place, "all Lebanon" drops it, "all governorates" asks for findings naming a
-     governorate (or a district or town of one) instead, a time frame of its own replaces the earlier years.
+     instead of studying?" and "the situation of children for all governorates" start afresh). A short
+     question is a question of its own when it has words of a subject that are no group of people and a
+     place, all of Lebanon, a breakdown or years of its own, and no leading "and" (`Asked.own_question`:
+     "stunting in Baalbek?", "child marriage Akkar", "child marriage 2024", "stunting nationally?" start
+     afresh; "child marriage", "girls in Akkar?", "what about Akkar?" stay follow-ups). A question that names
+     the KM Database's subject in general words ("the situation of children", "children"), a Finding ID or a
+     Document ID has a subject of its own. The earlier turns of the conversation that were answered or matched
+     nothing (`ask.history`; `ask.conversation`, from their cleaned questions and what their rows keep, no
+     query) leave a subject: the words of the question that set it, the angles its follow-ups added ("with a
+     lens on gender", "and for boys?"), its places and its years. A question that matched nothing cites
+     nothing and is never sent to the AI, but its subject, places and years stay: "thank you, same for Akkar
+     please" after "juvenile justice in Zahle" (no match) reads juvenile justice in Akkar, never every finding
+     of Akkar. A follow-up keeps them unless it names its own: a place of its own replaces the earlier place,
+     "all Lebanon" drops it, "all governorates" asks for findings naming a governorate (or a district or town
+     of one) instead; a breakdown by district with no place of its own ("and by district?", "per caza") after
+     a place is by the districts of that place, the findings that name more of them first (the place stays
+     required; `places.district_alternatives`; "By district within Baalbek-Hermel: findings that name more of
+     its districts first.", and a "partly" notice says when no finding read compares its districts); a time
+     frame of its own replaces the earlier years, and "anything newer?", "more recent?", "any update?" read
+     the years after the earlier question's last one up to this year (2020–2026 after "in 2019"; this year
+     alone when they reach it; the past 2 years when it had none), and only when no finding of those years
+     matches, the newest others (the line says so: `TimeFrame.followed`).
      It reads the findings the previous answer cited first (up to 20; when it names a place of its own, only
      those naming it). When no finding of the place matches its angles together with the earlier subject: an
      angle on that subject ("and for girls?", "for girls", "what about refugees?"), or an addition ("and the
      trend?", "and the causes?", "and by nationality?", `ask.ADDS`), that findings elsewhere join to it keeps
      the subject, and the place is widened ("No finding on this subject names Tripoli (the North): findings
-     from all of Lebanon were read."); a new subject ("what about child marriage?", "child marriage", "what
-     about ECD?" after out-of-school children in Tripoli reads that subject in Tripoli), a rework, or an angle
-     or addition no finding joins anywhere searches its angles alone, in the earlier place and years (one of
-     two words when none holds both, and the line says so). The words of its own of any follow-up but a rework
-     or a group of people are then a new subject (a follow-up with no word of its own, "and in the North?",
-     "can u do it for all lebanon?", never makes the earlier angle the subject): the subject of the next follow-up
-     (the question's row keeps them, `new_subject`, as they were read: one group of all their words when one
-     of them was enough, so that "can u do it for all lebanon?" after "what about child marriage and child
-     labour?" reads either; and only the words the cleaned question holds, never a name it withheld; the
-     questions admin does not show them): "and for girls?" after "what about child marriage?" or "child
-     marriage" reads child marriage among girls, never girls out of school. A rework ("adjust it for girls",
-     "can you adjust the text above with a lens on gender") and a group of people ("and for girls?", "what
-     about girls?", "what about disability?", "what about refugees?", "now focus on displaced children": ages,
-     sexes, gender, disability and population types, refugees, displaced, Syrian, Palestinian, Lebanese,
-     migrants, the host community, stateless, IDPs; `ask.PEOPLE`) stay angles on the earlier subject: the next
-     follow-up reads out-of-school girls, never girls on any subject. An age mark that names a subject of its
-     own ("early childhood", "ECD", "preschool", "pregnancy", "antenatal", "primary school age") is a new
-     subject. The previous answer's findings are then read first unless the question asks about a new subject
-     and they do not match its words. The subject, places and years are read from the last 20 answered turns
-     of the conversation (`ask.CONVERSATION_TURNS`), so that reworks in between never drop an earlier
-     question's past 2 years; the AI is sent the last 4. A follow-up for all of Lebanon of a question on a
-     place alone ("the situation of children in Akkar", then "can u do it for all lebanon?") reads the
-     findings of the filters, newest first, the earlier answer's first. A question with no word of its own is
-     thus no longer "no findings" in a conversation, and a rework with no word of its own ("rephrase the
-     answer in simpler words") is answered from the earlier subject, place and years, the findings its answer
-     cited first. The line under the answer says what was kept ("Same subject as your earlier question; the
-     findings its answer cited were read again.", "Places from your earlier question: ...", "Years 2024–2026,
-     from your earlier question; ..."), and when a search matched nothing but the findings the previous answer
-     cited, "Answered from the 3 findings your earlier answer cited, read again: no other finding matches.". A
-     reply that reads no finding has its own line too ("No finding matches your words.", or "No words to
-     search: common words such as all, Lebanon and children are left out."), never the page's "Answered from 1
-     data lookup".
+     from all of Lebanon were read."); a new subject ("child marriage", "and for child marriage?" after
+     out-of-school children in Tripoli reads that subject in Tripoli), a rework, or an angle or addition no
+     finding joins anywhere searches its angles alone, in the earlier place and years (one of two words when
+     none holds both, and the line says so). A switch to a subject that is no group of people ("what about
+     vaccination?", "how about vaccination?", "ok, what about vaccination instead?", "vaccination instead",
+     "do the same for vaccination", "what about ECD?"; `ask.SWITCH`) searches its words alone in the earlier
+     place and years at once, as a first question would, never first joined to the earlier subject (in any
+     sizeable KM Database a few findings hold both, and the answer would read only them), without the
+     earlier angles; they are the next follow-up's subject unless no finding holds any of them ("what about
+     Zorvex?" reads the place's findings and says so, and the next follow-up goes back to the earlier
+     subject). A follow-up with no word of its own on a subject of two words that no finding holds together
+     ("can u do it for all lebanon?" after "what about child marriage and child labour?") reads the findings
+     that hold one of them, as a first question does, and the line says so. The words of its own of any
+     follow-up but a rework or a group of people are then a new subject (a follow-up with no word of its own,
+     "and in the North?", "can u do it for all lebanon?", never makes the earlier angle the subject): the
+     subject of the next follow-up (the question's row keeps them, `new_subject`, as they were read: one group
+     of all their words when one of them was enough, so that "can u do it for all lebanon?" after "what about
+     child marriage and child labour?" reads either; and only the words the cleaned question holds, never a
+     name it withheld; the questions admin does not show them): "and for girls?" after "what about child
+     marriage?" or "child marriage" reads child marriage among girls, never girls out of school. A rework
+     ("adjust it for girls", "can you adjust the text above with a lens on gender") and a group of people
+     ("and for girls?", "what about girls?", "what about disability?", "what about refugees?", "now focus on
+     displaced children": ages, sexes, gender, disability and population types, refugees, displaced, Syrian,
+     Palestinian, Lebanese, migrants, the host community, stateless, IDPs; `ask.PEOPLE`) stay angles on the
+     earlier subject: the next follow-up reads out-of-school girls, never girls on any subject. A group of
+     people replaces the earlier groups of its kind, in the angles and in the subject (`ask.PEOPLE_KINDS`:
+     sexes and gender, ages, disability, population types): "and for girls?" after "and for boys?" reads child
+     labour among girls, never girls or boys, and "and for boys?" after "out-of-school girls in Akkar" reads
+     out-of-school boys; groups of other kinds add up ("and for girls?" after "what about refugees?" reads
+     refugee girls). An age mark that names a subject of its own ("early childhood", "ECD", "preschool",
+     "pregnancy", "antenatal", "primary school age") is a new subject. The previous answer's findings are then
+     read first unless the question asks about a new subject and they do not match its words. The subject,
+     places and years are read from the last 20 turns of the conversation that were answered or matched
+     nothing (`ask.CONVERSATION_TURNS`), so that reworks in between never drop an earlier question's past 2
+     years; the AI is sent the last 4 answered ones. A follow-up for all of Lebanon of a question on a place
+     alone ("the situation of children in Akkar", then "can u do it for all lebanon?") reads the findings of
+     the filters, newest first, the earlier answer's first. A question with no word of its own is thus no
+     longer "no findings" in a conversation, and a rework with no word of its own ("rephrase the answer in
+     simpler words") is answered from the earlier subject, place and years, the findings its answer cited
+     first. The line under the answer says what was kept ("Same subject as your earlier question; the findings
+     its answer cited were read again.", "Places from your earlier question: ...", "Years 2024–2026, from your
+     earlier question; ..."), and when a search matched nothing but the findings the previous answer cited,
+     "Answered from the 3 findings your earlier answer cited, read again: no other finding matches.". A reply
+     that reads no finding has its own line too ("No finding matches your words.", or "No words to search:
+     common words such as all, Lebanon and children are left out."), never the page's "Answered from 1 data
+     lookup".
    - At most 40 findings, 6 a document (no cap when the filters or the question name one document), 60,000
      characters of findings (the conversation's earlier turns have their own room). When fewer than 40
      findings match, a word of the question matches no finding (a word misspelt or cut short, "lence"),
