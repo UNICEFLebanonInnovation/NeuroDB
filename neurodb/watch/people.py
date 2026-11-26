@@ -52,15 +52,14 @@ EMAIL = re.compile(
     rf"(?<![\w.+'-])[\w.+'-]+(?:{_AT_SIGN}|\s*(?:\[\s*{_AT_SIGN}\s*\]|\(\s*{_AT_SIGN}\s*\))\s*"
     rf"|\s*{_AT_SIGN}\s*(?=[\w-]+(?:\.[\w-]+)*\.[^\W\d_]{{2,}}\b))[\w-]+(?:\.[\w-]+)+"
 )
-# An address written out to dodge a filter: "layla.saab at unicef dot org", "layla dot saab at unicef dot
-# org", "layla.saab[at]unicef[.]org", "layla.saab{at}unicef.org", "layla.saab<at>unicef.org", "layla.saab
-# -at- example -dot- org", "layla.saab [ at ] example < dot > org", "layla.saab at unicef.org", "rhaddad at
-# hotmail.fr", "rhaddad at yahoo.co.uk", "r . haddad at unicef . org", "layla . saab @ example . org". A
-# plain full stop counts only before a
-# domain's ending in lower case (``_ENDING``: never a word of a sentence such as "it" or "we"), so that a
-# sentence ("located at Tyre. Net enrolment rose", "located at Tyre.Net", "at school.it was") is not
-# taken; in any case after a name with a full stop inside, as an address has ("Layla.Saab at
-# Unicef.Org", "LAYLA.SAAB AT UNICEF.ORG")
+# An address written out to dodge a filter: "x.fake at example dot org", "x dot fake at example dot org",
+# "x.fake[at]example[.]org", "x.fake{at}example.org", "x.fake<at>example.org", "x.fake -at- example -dot-
+# org", "x.fake [ at ] example < dot > org", "x.fake at example.org", "zfake at example.fr", "zfake at
+# example.co.uk", "x . fake at example . org", "x . fake @ example . org". A plain full stop counts only
+# before a domain's ending in lower case (``_ENDING``: never a word of a sentence such as "it" or "we"), so
+# that a sentence ("located at Tyre. Net enrolment rose", "located at Tyre.Net", "at school.it was") is not
+# taken; in any case after a name with a full stop inside, as an address has ("X.Fake at Example.Org",
+# "X.FAKE AT EXAMPLE.ORG")
 _AT = r"(?:\s*(?:\[\s*at\s*\]|\(\s*at\s*\)|\{\s*at\s*\}|<\s*at\s*>|-at-)\s*|\s+at\s+)"
 _DOT = (
     r"(?:\s*(?:\[\s*dot\s*\]|\(\s*dot\s*\)|\{\s*dot\s*\}|<\s*dot\s*>|\[\.\]|\(\.\)|\{\.\})\s*"
