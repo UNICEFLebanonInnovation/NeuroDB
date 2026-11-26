@@ -20,6 +20,10 @@ settings, streamed to the panel opened with Ctrl+Shift+H (``help.views.stream``)
 - **Its log** (``HelpQuestion``): the question as sent (names, e-mail addresses, phone numbers and links
   removed), the page, the answer, the tokens and whether it was declined, kept 90 days (:func:`prune`,
   run by the daily review job).
+- **What is sent**: the question and the page's title as typed text (:func:`clean`: every e-mail address
+  written out in any form goes, the name before "at" too), the page's address only when it holds no
+  e-mail address (:func:`page_path`), and the earlier turns of the conversation, each question cleaned
+  again and each answer cleaned and cut (:func:`history`).
 """
 
 from __future__ import annotations
@@ -208,12 +212,24 @@ def blocked() -> str:
 
 
 # ------------------------------------------------------------------------------------------ the question
-def clean(text: str, limit: int) -> str:
-    """A text as it is sent and kept: the names NeuroDB knows, e-mail addresses, phone numbers and links
-    removed (``fmm.privacy.clean``), cut to ``limit`` characters."""
+def clean(text: str, limit: int, names: frozenset[str] | None = None) -> str:
+    """A text the person typed (the question, the page's title) as it is sent and kept: the names NeuroDB
+    knows, e-mail addresses (written out in any form too: "x at example dot org", "X AT EXAMPLE.ORG"),
+    phone numbers and links removed (``fmm.privacy.clean_typed``), cut to ``limit`` characters."""
     from neurodb.fmm import privacy
 
-    return privacy.clean(text, limit)[0]
+    return privacy.clean_typed(text, limit, names)[0]
+
+
+def page_path(path: str) -> str:
+    """The page's address (its path) as it is sent and kept: "" ("unknown address") when it holds an e-mail
+    address, written out too, as the browser shows it ("%20" read as a space)."""
+    from urllib.parse import unquote
+
+    from neurodb.watch import people
+
+    shown = people.visible(unquote(path or ""))
+    return "" if people.without_addresses(shown) != shown.translate(people.LOOKALIKES) else path
 
 
 def screen(question: str) -> str | None:
@@ -268,14 +284,25 @@ def page_line(path: str, title: str) -> str:
 
 
 def history(user, conversation: uuid.UUID) -> list[dict[str, str]]:
-    """The last answered turns of the person's conversation, the answers cut."""
+    """The last answered turns of the person's conversation: each question cleaned again (:func:`clean`: a
+    question kept before a rule was added gets it too), each answer cleaned (``fmm.privacy.clean``: the
+    model may have written an address it read) and cut."""
+    from neurodb.fmm import privacy
+
     rows = list(
         HelpQuestion.objects.filter(user=user, conversation=conversation, status=HelpQuestion.Status.ANSWERED)
         .order_by("-created_at")
         .values("question", "answer")[:HISTORY_TURNS]
     )
     rows.reverse()
-    return [{"question": r["question"], "answer": r["answer"][:HISTORY_ANSWER_CHARS]} for r in rows]
+    names = privacy.names() if rows else frozenset()
+    return [
+        {
+            "question": clean(r["question"], QUESTION_CHARS, names),
+            "answer": privacy.clean(r["answer"], HISTORY_ANSWER_CHARS, names)[0],
+        }
+        for r in rows
+    ]
 
 
 # ------------------------------------------------------------------------------------------ the run

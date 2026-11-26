@@ -17,6 +17,8 @@ from django.db import transaction
 from django.db.models import Max, Min, Value
 from django.utils import timezone
 
+from neurodb.watch import people
+
 from . import linking
 from .models import Chunk, Document, Link
 from .search import rank_parse
@@ -207,7 +209,9 @@ def summarise(document: Document) -> bool:
         llm.Request(
             user=(
                 llm.Text(SUMMARY_PROMPT),
-                llm.Text(f"Title: {document.title}\n\n<document>\n{body}\n</document>"),
+                llm.Text(
+                    people.without_emails(f"Title: {document.title}\n\n<document>\n{body}\n</document>")
+                ),
             ),
             schema=SUMMARY_SCHEMA,
             schema_name="knowledge_document",

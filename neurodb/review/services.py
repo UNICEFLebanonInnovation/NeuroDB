@@ -27,6 +27,7 @@ from django.utils.translation import ngettext
 from neurodb.assistant import llm
 from neurodb.core.models import SyncRun
 from neurodb.datamart.monitoring import norm
+from neurodb.watch import people
 
 from . import checks
 from .checks import GOOD, Draft
@@ -388,7 +389,8 @@ narrate_review = narrate  # ``run`` takes a ``narrate`` flag; this keeps the fun
 
 
 def narration_input(review: DailyReview, findings: list[ReviewFinding]) -> dict[str, Any]:
-    """What the model reads: the ranked findings (bounded) and the day's counts, nothing personal."""
+    """What the model reads: the ranked findings (bounded) and the day's counts, nothing personal (a
+    finding's title and detail without e-mail addresses, written out too: ``people.without_emails``)."""
     stats = review.stats or {}
     previous = _previous_of(review)
     return {
@@ -409,8 +411,8 @@ def narration_input(review: DailyReview, findings: list[ReviewFinding]) -> dict[
                 "severity": f.severity,
                 "state": f.state,
                 "section": f.section,
-                "title": f.title,
-                "detail": f.detail,
+                "title": people.without_emails(f.title),
+                "detail": people.without_emails(f.detail),
                 "children_behind_target": f.children,
                 "numbers": (f.evidence or {}).get("numbers", {}),
             }
@@ -445,8 +447,8 @@ def decision_input(review: DailyReview, findings: list[ReviewFinding]) -> dict[s
                 "severity": f.severity,
                 "state": f.state,
                 "section": f.section,
-                "title": f.title,
-                "detail": f.detail,
+                "title": people.without_emails(f.title),
+                "detail": people.without_emails(f.detail),
                 "children_behind_target": f.children,
                 "numbers": (f.evidence or {}).get("numbers", {}),
             }

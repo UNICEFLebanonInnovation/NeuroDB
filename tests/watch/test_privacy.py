@@ -531,3 +531,57 @@ def test_a_sentence_with_the_systems_words_is_dropped_unless_a_name_it_cites_has
 def test_the_review_number_helper_is_shared_under_its_new_name():
     assert review_services._numbers is review_services.numbers_in
     assert review_services.numbers_in("12,500 PDs and 3. Then 4.5") == {"12500", "3", "4.5"}
+
+
+# ------------------------------------------------------------------------------------ written-out addresses
+def test_a_text_sent_loses_a_written_out_address_and_keeps_its_sentences():
+    """Every text the watch (and Monitoring insights, the Help assistant's look-ups) sends: an address
+    written out goes whole, not only its domain as a link; a sentence that only looks like one keeps its
+    words ("published at Example.Org" loses its link)."""
+    from tests.written_addresses import NOT_ADDRESSES, RECORD, RECORD_FORMS
+
+    for form, written in RECORD_FORMS.items():
+        assert redact.text(RECORD.format(written), 500, frozenset()) == RECORD.format(
+            people.EMAIL_WITHHELD
+        ), form
+    for text, sent in NOT_ADDRESSES.items():
+        assert redact.text(text, 500, frozenset()) == sent
+
+
+def test_no_written_out_address_reaches_the_look_up_or_the_morning_note():
+    """An item's title, a look-up's result and a What's new line, as the watch sends them."""
+    from neurodb.watch import explain, investigate
+    from tests.written_addresses import RECORD, RECORD_FORMS, leaks
+
+    found = {}
+    for form, written in RECORD_FORMS.items():
+        record = RECORD.format(written)
+        WatchItem.objects.all().delete()
+        item = WatchItem.objects.create(
+            key=f"review:reports_overdue:{PD}",
+            detector="review",
+            kind=WatchItem.Kind.CONCERN,
+            severity="critical",
+            title=f"Progress reports overdue. {record}",
+            detail="never sent",
+            url="/programme/1/",
+            entity_kind="programme_document",
+            entity_key=PD,
+            etools_sections=["Education"],
+            evidence={"records": [], "numbers": {"overdue_reports": 2}},
+            first_seen_on=TODAY,
+            last_seen_on=TODAY,
+            changed_on=TODAY,
+        )
+        asked = json.loads(investigate.question(item, TODAY, frozenset())[len(investigate.QUESTION) :])
+        tool = redact.for_tool({"name": record, "partner": record}, frozenset())
+        facts = explain.facts(
+            "all sections", [item], changes=[f"A change: {record}"], names=frozenset(), today=TODAY
+        )
+        sent = {
+            "look-up title": asked["title"],
+            "look-up result": json.dumps(tool, ensure_ascii=False),
+            "note": json.dumps(facts.payload, ensure_ascii=False),
+        }
+        found |= {f"{form} {where}": text for where, text in leaks(sent).items()}
+    assert not found, json.dumps(found, ensure_ascii=False, indent=1)

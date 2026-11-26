@@ -280,6 +280,15 @@ def test_texts_with_an_email_a_link_or_a_known_name_are_refused():
     assert "name of a person" in profiles.text_problems("Rania Canary leads it.", names)[0]
 
 
+def test_a_prompt_text_with_an_address_written_out_is_refused():
+    from tests.written_addresses import FORMS
+
+    for form, written in FORMS.items():
+        found = profiles.text_problems(f"Write to {written} for help.", frozenset())
+        assert found and "e-mail" in found[0], form
+    assert profiles.text_problems("Look at data for children at school, and meet at 5.", frozenset()) == []
+
+
 def test_the_warnings(v1, admin_user):
     draft = profiles.draft_from(v1, admin_user, "x", effort="medium", max_output_tokens=1500, top_p="0.9")
     found = profiles.warnings(draft)

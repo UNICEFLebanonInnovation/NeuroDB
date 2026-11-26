@@ -174,8 +174,8 @@ def filters_text(scope: Scope, names_: frozenset[str]) -> str:
         parts.append("Urgency: " + ", ".join(URGENCY_LABELS.get(u, u) for u in scope.urgency_levels))
     if scope.programmatic:
         parts.append("Programmatic visits only")
-    if scope.q:
-        parts.append(f"Search: {scope.q}")
+    if scope.q:  # typed by the person: every e-mail address written out goes first (the typed rule)
+        parts.append(f"Search: {privacy.clean_typed(scope.q, FILTER_CHARS, names_)[0]}")
     for key, value in scope.drill:
         parts.append(f"{key.replace('_', ' ')}: {value}")
     text = " · ".join(parts) or "All visits"

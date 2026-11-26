@@ -7,16 +7,18 @@ Field monitoring records name people (the visit lead, the team) and hold free te
 - a key that holds a person (:func:`person_like`: ``datamart.catalogue.person_key``, "visit_lead",
   "team_members", "person_responsible"..., or one of NeuroDB Watch's person fields such as
   "first_name", "username", "contacts") is never shown, never sent and never kept as an example;
-- a text is cleaned before it goes anywhere (:func:`clean`): e-mail addresses, links and the person
-  names NeuroDB knows (``watch.redact.text``), then phone numbers and names written after a title
-  ("Mrs Layla Saab", ``watch.people``), each replaced by a placeholder;
+- a text is cleaned before it goes anywhere (:func:`clean`): e-mail addresses (written out too: "x.y at
+  example dot org", "X AT EXAMPLE.ORG"), links and the person names NeuroDB knows (``watch.redact.text``),
+  then phone numbers and names written after a title ("Mrs Layla Saab", ``watch.people``), each replaced by
+  a placeholder; what a person typed (a chat question, the search words of a filter) loses first every
+  address written out in any form, by the stronger rule for typed text (:func:`clean_typed`);
 - a team is shown by its members' names only, never their e-mail addresses (:func:`person_display`),
   and those names join the names NeuroDB removes from every text it sends (:func:`team_names`,
   registered into ``watch.people.EXTRA_SOURCES`` when the app starts);
 - the AI sees a visit as a card copied from an allow-list of its fields (:func:`visit_card`): never its
   team, visit lead or narrative;
 - everything about to be sent to the AI is checked one last time (:func:`assert_clean`): a known person
-  name, an e-mail address, a phone number or a link anywhere in it stops the call.
+  name, an e-mail address (written out too), a phone number or a link anywhere in it stops the call.
 """
 
 from __future__ import annotations
@@ -80,6 +82,21 @@ def clean(text: Any, limit: int, names_: frozenset[str] | None = None) -> tuple[
     cleaned = INTL_PHONE.sub(PHONE_WITHHELD, cleaned)
     cleaned = HONORIFIC_NAME.sub(people.NAME_WITHHELD, cleaned)
     return cleaned[:limit], max(0, _placeholders(cleaned) - before)
+
+
+def clean_typed(text: Any, limit: int, names_: frozenset[str] | None = None) -> tuple[str, int]:
+    """What a person typed (a chat or Help question, a page's title, the search words of a filter) as it is
+    sent and kept: first every e-mail address written out in any form, by the typed rule
+    (``watch.people.without_addresses``: "x at example.org", "x [at] example [dot] org", "X AT
+    EXAMPLE.ORG", "x at example.invalid", "x аt example.org" with a Cyrillic "а"; "children at example.org"
+    keeps "children"), and a name a question kept before this rule still has before a link withheld ("x at
+    [link withheld]"); then as :func:`clean`. Run again on a text it cleaned, it changes nothing."""
+    if text is None:
+        return "", 0
+    before = _placeholders(" ".join(str(text).split()))
+    typed = people.without_kept_names(people.without_addresses(str(text)))
+    cleaned = clean(typed, limit, names_)[0]
+    return cleaned, max(0, _placeholders(cleaned) - before)
 
 
 def _person_field(dataset: str, key: str) -> bool:
@@ -277,11 +294,12 @@ def _strings(value: Any, names_: frozenset[str], path: str = "") -> Iterator[tup
 
 def assert_clean(payload: Any, names_: frozenset[str]) -> None:
     """The last check before anything is sent to the AI (a brief's payload, a chat look-up's result):
-    raises :class:`PrivacyRefused` when any string in ``payload`` holds an e-mail address, a phone
-    number, a link or a person name in ``names_`` (``watch.people.mentions``)."""
+    raises :class:`PrivacyRefused` when any string in ``payload`` holds an e-mail address (written out
+    too, as the record rule takes it: ``watch.people.withhold_addresses``), a phone number, a link or a
+    person name in ``names_`` (``watch.people.mentions``)."""
     for where, text in _strings(payload, names_):
         text = people.visible(text)
-        if people.EMAIL.search(text):
+        if people.EMAIL.search(text) or people.withhold_addresses(text) != text:  # written out too
             raise PrivacyRefused(f"an e-mail address at {where}")
         if PHONE.search(text) or INTL_PHONE.search(text):
             raise PrivacyRefused(f"a phone number at {where}")

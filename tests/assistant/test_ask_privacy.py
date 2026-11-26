@@ -597,3 +597,79 @@ def test_a_long_text_is_cut_as_written_outside_ask(person):
     )
     read = tools.run("read_knowledge", {"document_id": document.pk})
     assert read["text"].endswith("Rania ")
+
+
+# ------------------------------------------------------------------------------------ written-out addresses
+def test_no_written_out_address_reaches_ask_neurodb(monkeypatch, db):
+    """The question and the earlier question (typed: every written-out form), the earlier answer and a
+    knowledge passage and a daily review detail (the record rule), as the model is sent them, hold no part
+    of an address."""
+    from tests.assistant.test_assistant import call
+    from tests.written_addresses import FORMS, RECORD, RECORD_FORMS, TYPED, leaks
+
+    document = Document.objects.create(title="Minutes", text="Dropout notes.", status=Document.Status.READY)
+    review = DailyReview.objects.create(date=datetime.date(2026, 11, 18), status="succeeded", summary="Calm.")
+    finding = ReviewFinding.objects.create(
+        review=review,
+        key="reports_overdue:X",
+        check_id="reports_overdue",
+        severity=ReviewFinding.Severity.CRITICAL,
+        section="Education",
+        title="Two progress reports are overdue",
+        detail="x",
+        url="/programmes/12/",
+    )
+    found = {}
+    for form, written in FORMS.items():
+        typed = TYPED.format(written)
+        record = RECORD.format(written if form in RECORD_FORMS else FORMS["F00 plain @"])
+        document.text = f"Dropout notes. {record}"
+        document.save()
+        indexing.index(document)
+        finding.detail = record
+        finding.save()
+        client = FakeClient(
+            [
+                reply(call("search_knowledge", {"query": "dropout"}, "c1"), call("daily_review", {}, "c2")),
+                reply(say("Done.")),
+            ]
+        )
+        monkeypatch.setattr(agent, "client", lambda client=client: client)
+        with override_settings(**ENABLED, AI_PROVIDER="openai"):
+            _answer(question=typed, history=[{"question": typed, "answer": record}])
+        earlier_question, earlier_answer, asked = client.requests[0]["input"]
+        knowledge, daily = [
+            json.loads(i["output"])
+            for i in client.requests[1]["input"]
+            if i.get("type") == "function_call_output"
+        ]
+        sent = {
+            "question": asked["content"],
+            "earlier question": earlier_question["content"],
+            "earlier answer": earlier_answer["content"],
+            "knowledge passage": " ".join(p["text"] for p in knowledge["passages"]),
+            "daily review detail": daily["findings"][0]["detail"],
+        }
+        assert knowledge["passages"], form
+        found |= {f"{form} {where}": text for where, text in leaks(sent).items()}
+    assert not found, json.dumps(found, ensure_ascii=False, indent=1)
+
+
+def test_a_record_text_loses_a_written_out_address_and_keeps_its_sentences_in_ask():
+    """Ask's cleaner (a record's text, an earlier answer): an address written out goes whole, over two lines
+    too, and a sentence that only looks like one keeps its words."""
+    from tests.written_addresses import NOT_ADDRESSES, RECORD, RECORD_FORMS
+
+    for form, written in RECORD_FORMS.items():
+        assert privacy.text(RECORD.format(written), frozenset()) == RECORD.format("[email withheld]"), form
+        assert privacy.text(RECORD.format(written), frozenset(), label=True) == RECORD.format(
+            "[email withheld]"
+        )
+    for text_, sent in NOT_ADDRESSES.items():
+        assert privacy.text(text_, frozenset()) == sent
+    assert privacy.text("Write to ZFAKEMIRA AT\nEXAMPLE.ORG.\n\nAkkar.", frozenset()) == (
+        "Write to [email withheld].\n\nAkkar."
+    )
+    assert privacy.text("Write to zayna_fakemira  at  example.invalid now", frozenset()) == (
+        "Write to [email withheld] now"
+    )

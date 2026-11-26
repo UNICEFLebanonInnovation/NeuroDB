@@ -435,3 +435,49 @@ def test_a_report_accepted_without_its_date_is_not_overdue(data):
     dm.ReportedIndicator.objects.filter(progress_report="PR-2").update(report_status="Due")
     finding = by_check(run(NEXT_DAY))["reports_overdue"]
     assert finding.key == "reports_overdue:LEB/PD1" and finding.title.startswith("1 progress report overdue")
+
+
+def test_no_written_out_address_reaches_the_summary_or_the_decisions(data, settings, monkeypatch):
+    """A finding's title and detail lose any e-mail address, written out too, before the daily review's
+    summary and decisions calls read them."""
+    import json
+
+    from neurodb.assistant import llm
+    from tests.written_addresses import RECORD, RECORD_FORMS, leaks
+
+    sent = []
+
+    def complete(request, timeout=None, retries=None):
+        sent.append(request)
+        text = json.dumps({"decisions": []}) if request.schema else "Summary."
+        return SimpleNamespace(
+            text=text, model="m", usage=llm.Usage(), ledger_model="m", served_by="", stop="ok", cut_off=False
+        )
+
+    monkeypatch.setattr(llm, "complete", complete)
+    monkeypatch.setattr(llm, "record", lambda *a, **k: None)
+    monkeypatch.setattr(llm, "enabled", lambda: True)
+    found = {}
+    for form, written in RECORD_FORMS.items():
+        record = RECORD.format(written)
+        day = DailyReview.objects.create(date=datetime.date(2026, 11, 18), status="succeeded", stats={})
+        finding = ReviewFinding.objects.create(
+            review=day,
+            key="reports_overdue:X",
+            check_id="reports_overdue",
+            severity=ReviewFinding.Severity.CRITICAL,
+            section="Education",
+            title=f"Reports overdue. {record}",
+            detail=record,
+            url="/programmes/12/",
+        )
+        sent.clear()
+        services.narrate(day, [finding])
+        services.decide(day, [finding])
+        assert len(sent) == 2, form
+        found |= {
+            f"{form} {where}": t
+            for where, t in leaks({"summary": sent[0].user, "decisions": sent[1].user}).items()
+        }
+        day.delete()
+    assert not found, json.dumps(found, ensure_ascii=False, indent=1)

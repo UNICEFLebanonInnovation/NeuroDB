@@ -416,3 +416,27 @@ def test_donor_accounts_never_get_the_note(people, changed, settings, mailoutbox
 def test_notes_and_changes_are_dated(changed):
     _build()
     assert Change.objects.filter(detected_at__date=datetime.date.today()).exists()
+
+
+def test_no_written_out_address_reaches_the_whats_new_note(monkeypatch, settings):
+    """A What's new line loses any e-mail address, written out too, before the note's call reads it."""
+    import json
+
+    from neurodb.assistant import llm
+    from tests.written_addresses import RECORD, RECORD_FORMS, leaks
+
+    sent = []
+
+    def complete(request, timeout=None, retries=None):
+        sent.append(request)
+        return SimpleNamespace(text="Note.", model="m", usage=llm.Usage(), ledger_model="m", stop="ok")
+
+    monkeypatch.setattr(llm, "complete", complete)
+    monkeypatch.setattr(llm, "record", lambda *a, **k: None)
+    monkeypatch.setattr(llm, "enabled", lambda: True)
+    found = {}
+    for form, written in RECORD_FORMS.items():
+        sent.clear()
+        digest.narrate("all sections", [f"A partner changed. {RECORD.format(written)}"])
+        found |= {f"{form} {where}": t for where, t in leaks({"note": sent[0].user}).items()}
+    assert not found, json.dumps(found, ensure_ascii=False, indent=1)

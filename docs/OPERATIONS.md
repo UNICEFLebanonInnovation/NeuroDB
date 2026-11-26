@@ -392,6 +392,33 @@ come from.
   ("Layla checked the figures"); the page still asks people not to enter personal data. Help, Monitoring
   insights and NeuroDB Watch run the same loop with their own options and filters, which this does not
   change.
+- **E-mail addresses written out** (`neurodb/watch/people.py`): one rule, first written for the KM
+  Database's questions, takes an address however it is written, in every text any assistant sends.
+  - *What a person types* gets the typed rule (`people.without_addresses`): a question of Ask NeuroDB, of
+    the Monitoring insights chat, of the Help assistant or of the KM Database, each earlier question sent
+    again, the Help page's title and the search words of a Monitoring insights filter. "x at example.org",
+    "x(at)example.org", "x [ at ] example [ dot ] org", "x -at- example -dot- org", "x at example dot org",
+    "X AT EXAMPLE.ORG", "x at Example.Org", "x at mail.example.invalid" and "x at example. org" lose the
+    whole address, the name before "at" too, and so do letters that look like an address's (a Cyrillic
+    "а", a full-width "ａｔ" or "．") and characters nobody sees. A common word before "at" and a domain
+    stays ("children at [link withheld]"); any other word goes with the address. A question kept before
+    this rule, whose domain alone was taken as a link ("x at [link withheld]"), loses the name when it is
+    sent again (Monitoring insights chat, Help assistant).
+  - *Record and document texts* get the record rule (`people.withhold_addresses`): narratives, answers,
+    look-up results, earlier answers, documents. An address ending in a common domain in lower case
+    (".org", ".com", ".lb"...) or written with "dot" goes whatever the word before "at"; before a domain
+    in capitals or of another ending, only when that word holds a full stop, "_", "+" or a digit or is in
+    capitals with "AT" ("x.y at Example.Org", "x_y at example.invalid", "X AT EXAMPLE.ORG"). So
+    "published at Example.Org", "located at Tyre.Net" and "at school.it was" keep their words (a domain
+    still goes as a link), and so does "x at Example.Org"; a web address after a plain word ("available
+    at www.unicef.org", "at unicef.org/lebanon") is a link, withheld as one; look-alike letters are read
+    as such only in typed text.
+  - *Texts sent whole* with no other cleaning (a document to review or summarise, a periodic report's
+    pages, a Word or text CPD, a daily review finding, a What's new line) lose their addresses by the
+    record rule (`people.without_emails`); a text without one is sent exactly as it is, and a CPD in PDF
+    is sent as the file.
+  - Monitoring insights' last check (`fmm.privacy.assert_clean`) stops a text that still holds an address
+    the record rule finds, and a prompt text holding one written out cannot be saved.
 - **The answer is checked against its lookups** (`neurodb/assistant/figures.py`, from `agent._finish`):
   Monitoring insights' check of a chat answer (`neurodb/fmm/ai/citations.py`, some of whose parts it
   reuses) run on Ask's lookups, once the answer is written (the person sees the answer stream as it is
@@ -746,8 +773,9 @@ minutes; the page refreshes until it is ready; several files added at once are r
    named in the text are linked. Matching is literal and whole-word; "North" and "South" count
    only as "North Lebanon" / "South governorate". The documents then show on the partner's and the
    programme document's pages, and `partner_details` / `programme_details` give them to the AI.
-4. **Summary** (when the AI assistant is configured): the first 120,000 characters go to the AI
-   provider in use (Claude, or OpenAI with `store=false`) for a short summary, key points, the
+4. **Summary** (when the AI assistant is configured): the first 120,000 characters, without their e-mail
+   addresses (written out too), go to the AI provider in use (Claude, or OpenAI with `store=false`) for a
+   short summary, key points, the
    document's date and the organisations, places and reference numbers it names; those names become *AI-suggested* links when they match a
    NeuroDB record. If this step fails, the document is still searchable and says so.
 
@@ -802,7 +830,8 @@ differences, follow trends and draw charts.
   usually in the later editions' charts, which repeat every date since the start.
 - **Other figures** (headline counts and their breakdowns, indicators with achievement and target)
   are listed by the AI (the provider in use; OpenAI with `store=false`) from the pages laid out as on
-  paper. A figure is kept only when its number is printed on the page it is said to come from; the others are counted
+  paper, sent without their e-mail addresses (written out too).
+  A figure is kept only when its number is printed on the page it is said to come from; the others are counted
   in the edition's note. Earlier editions' measures are given to the AI so that the same measure
   keeps the same name. Without the AI configured only the charts' figures are kept.
 - **Over time**: the figures of all editions are lined up by the date they are about. When several
@@ -911,8 +940,9 @@ leaves the documents it did not reach waiting, so the nightly run goes on with t
 model is the one of AI settings (`AI_ASSISTANT_MODEL` on OpenAI) at low effort, `store=false` (OpenAI;
 Claude keeps no conversation either), 180 seconds and one retry per call.
 
-**What goes to the AI provider in use**: the document's title and text (the part being read), the topic list, and for
-the statements and action points the findings' texts. The prompts tell the model that the document is
+**What goes to the AI provider in use**: the document's title and text (the part being read), the topic list,
+and for the statements and action points the findings' texts, each call without e-mail addresses (written
+out too). The prompts tell the model that the document is
 material, never instructions, and never to write a person's name, e-mail address or phone number; owners
 are cleaned of them again before they are kept. Do not put personal data of children, beneficiaries or
 staff in a reviewed document.
@@ -1120,7 +1150,7 @@ Where it shows:
   one note for everyone and one per section concerned, from the notable changes of the last 24 hours.
   With the assistant configured, the model writes two to five sentences from the change lines only
   (`store=false` on OpenAI, and Claude keeps no conversation either; names and figures as NeuroDB holds
-  them, no personal data); otherwise, or if it
+  them, no personal data, no e-mail address, written out or not); otherwise, or if it
   fails, the changes are listed. Run again the same day, the note is rewritten. Admin → Library and
   maps → *What's new notes*.
 - **By email**, when `EMAIL_URL` is set (SMTP, e.g. `smtp+tls://user:password@smtp.office365.com:587`;
@@ -1944,9 +1974,12 @@ with a link. Every signed-in person but a donor has it. The code is in `neurodb/
   run's status and time: never who ran it or its error text). Each look-up runs in a read-only
   transaction. Answers cite the guide sections (`/help/<page>/#<slug>`) and, for an Administrator only,
   the admin page a setting lives on.
-- **What it sends to the AI provider in use**: the question (names NeuroDB knows, e-mail addresses, phone numbers and links
-  removed before it is sent and kept), the page's path and cleaned title, up to 6 earlier questions and
-  answers of the conversation, and what its look-ups return. Its own prompt (not Ask's), the model of
+- **What it sends to the AI provider in use**: the question and the page's title (names NeuroDB knows,
+  e-mail addresses, also written out, by the typed rule of *AI assistant*, phone numbers and links
+  removed before they are sent and kept), the page's path (left out, and not kept, when it holds an
+  e-mail address), up to 6 earlier questions and answers of the conversation (each question cleaned
+  again, each answer cleaned of names, e-mail addresses, phone numbers and links and cut to 1,500
+  characters), and what its look-ups return. Its own prompt (not Ask's), the model of
   AI settings at low effort, at most 4 rounds and 90 seconds, `store=false` (OpenAI; Claude keeps no
   conversation either), a keyed hash of the person (OpenAI's `safety_identifier`, Claude's
   `metadata.user_id`).
@@ -6213,7 +6246,8 @@ indicator this year, as on the PD page and the overview) when it is among the fi
 else the children indicator furthest behind; the finding names it.
 
 **The summary.** With the AI assistant configured (an Anthropic or OpenAI key), the model reads only the
-day's findings and counts (titles, details and numbers; no staff names; `store=false` on OpenAI, and
+day's findings and counts (titles, details and numbers; no staff names, and no e-mail address, written
+out or not; `store=false` on OpenAI, and
 Claude keeps no conversation either) and writes four to six plain sentences;
 tokens are recorded on the review. Without it, or when the call fails, a template writes the
 summary. Findings are prompts to look, never verdicts on partners or staff.
@@ -6481,7 +6515,8 @@ Sent (to the provider in use, api.anthropic.com or api.openai.com, over HTTPS; o
 - in a look-up, the allow-listed results of the tools above.
 
 Organisation names, PD numbers and grant, donor, section and document names are sent, as the daily
-review already does. Never sent: any person's name or email (the fields that hold one are never read,
+review already does. Never sent: any person's name or email, written out too (the fields that hold one
+are never read,
 and every text is checked against the list of names NeuroDB knows, in and out), the owner and note of
 a finding assignment, people's reactions and comments, a point's detail and evidence records, system
 points (they carry error text), document summaries or text, earlier notes or anything else the AI
@@ -7794,17 +7829,21 @@ Nothing goes while `FMM_AI` is off. Once it is on, the brief and the chat send:
 | A keyed hash of the person (OpenAI's `safety_identifier`, Claude's `metadata.user_id`) on runs a person starts; `store=False` always on OpenAI (Claude keeps no conversation either) | Child-level or Makani data; the user's name, e-mail address or id |
 | Within one chat conversation only: its last 6 questions and checked answers, cleaned again, at most 1,500 characters each | Earlier briefs; answers of other conversations or other filters |
 
-- **Cleaning** (`neurodb/fmm/privacy.py: clean`) removes e-mail addresses, links, the names NeuroDB
+- **Cleaning** (`neurodb/fmm/privacy.py: clean`) removes e-mail addresses (written out too, by the
+  record rule of *AI assistant*), links, the names NeuroDB
   knows (users, partner and eTools staff, and the field monitoring team names of every visit), phone
   numbers (Lebanese and international) and names written after a title (Mrs, Dr, Sheikh...). A text
   with more than 3 of them removed, or under 40 characters, is never sent. Texts are cleaned when they
   are sent, with the names known then; cleaned texts are kept only in the brief's *What was sent* (30
   days), the briefs and the chat log (180 days).
 - **A last check** runs on the whole brief before it is sent and on every chat look-up before the
-  model reads it: a known name, an e-mail address, a phone number or a link that slipped through stops
+  model reads it: a known name, an e-mail address (written out too), a phone number or a link that slipped
+  through stops
   the brief ("could not be written safely") or withholds the look-up ("This look-up could not be
   shared safely"), and an error is logged without the text.
-- **The user's own chat question** is cleaned before it is sent and kept.
+- **The user's own chat question** is cleaned before it is sent and kept, and again when a follow-up
+  sends it, by the typed rule for e-mail addresses written out (`privacy.clean_typed`, see *AI
+  assistant*); so are the search words of the filter in a brief's filter line.
 - **Ask NeuroDB** reads field monitoring without these limits on texts per answer, so it gets none:
   its `fm_*` look-ups return structured fields only (no notes, answers or snippets), and its generic
   eTools look-ups drop person keys and withhold long texts (see *AI assistant*, above).
@@ -8647,7 +8686,7 @@ an output), in any of three ways, which can be mixed:
   or a text file (.txt, .md; an old .doc must be saved as .docx or PDF first) — and run **Propose the results
   framework**. The document is read in the background (a minute or two) by the AI provider in use with
   the same key and model as Ask NeuroDB (AI settings), on OpenAI with `store=False`
-  (a PDF is sent as a file, the text of a Word or text document as text);
+  (a PDF is sent as a file, the text of a Word or text document as text, without its e-mail addresses);
   the CPD is a public document. The proposal appears in *AI-suggested frameworks*: **Review and
   apply** lists every outcome, output and indicator with its baseline and target; untick what is
   wrong and apply. Nothing enters the framework before that. Applied items are marked

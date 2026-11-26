@@ -57,13 +57,19 @@ address.
   to, child-level data, your name or e-mail address.
 - **Cleaned before sending**: monitors' notes, checklist answers, action point texts and your question
   to Chat with Data or the Help assistant lose the person names NeuroDB knows, e-mail addresses, phone
-  numbers and links.
+  numbers and links. An e-mail address goes whole however it is written out: with "at" and "dot" in
+  words, dashes or brackets ("x [ at ] example [ dot ] org"), or in capitals. In what you type (a
+  question to any assistant, the page's title, the words of a search), also letters that only look like
+  "at", and the word before "at" and a web address, unless it is a common word ("children at [link
+  withheld]"); your earlier questions are cleaned so again each time they are sent. Documents the AI
+  reads whole lose their e-mail addresses too.
 - **Ask NeuroDB** sends your question, the earlier questions and answers of the conversation and what it
   looks up, after taking out the people it can find: e-mail addresses, phone numbers, links, the full
   names of the people NeuroDB knows and any name after a title (see
   [Ask NeuroDB](/help/ask-neurodb/#what-goes-to-the-ai)).
-- **The Help assistant** sends your question, the page you are on and the guide sections and settings
-  it looks up; never programme data beyond a visit's score explanation, and never a password or a key.
+- **The Help assistant** sends your question, the page you are on (not its address when it holds an
+  e-mail address) and the guide sections and settings it looks up; never programme data beyond a visit's
+  score explanation, and never a password or a key.
 - **Ask the KM Database** sends your question (cleaned as above, an e-mail address written out with "at"
   and "dot" in words, dashes or brackets, or in capitals, taken out whole, and without the KM Database's
   authors),

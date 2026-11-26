@@ -145,8 +145,9 @@ answered by the AI with four look-ups of Monitoring insights: counts of visits a
 by section, partner, month, rating, rule...), lists of visits with their records, one visit with each
 of its records' score, urgency and rule results, and a search of the visits' notes. As on the page, the
 average quality and the urgency are per record. The model can narrow the filter but never widen it; changing the filter
-starts a new conversation. Names, e-mail addresses and phone numbers are removed from your question
-before it is sent. A link to a visit stays only when a look-up returned that visit ("Visit 1722 (not
+starts a new conversation. Names, e-mail addresses (also written out: "x at example dot org") and phone
+numbers are removed from your question before it is sent, and again when a follow-up sends it. A link
+to a visit stays only when a look-up returned that visit ("Visit 1722 (not
 checked)" otherwise), and figures no look-up returned are listed under the answer. 20 questions a day
 per person. For questions about how NeuroDB works, use the Help assistant instead.
 

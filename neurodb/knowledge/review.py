@@ -60,6 +60,7 @@ from django.utils import timezone
 
 from neurodb.assistant import llm, usage
 from neurodb.integrations.background import DOC_REVIEW_LOCK_ID
+from neurodb.watch import people
 from neurodb.watch.budget import SOFT_SHARE
 
 from . import review_locate as where
@@ -320,7 +321,7 @@ def ask(ctx: Context, stage: str, payload: str, extra: str = "") -> list[dict[st
     instructions = prompts.compose(ctx.setting.prompt(PROMPT_OF[stage]))
     request = llm.Request(
         system=f"{instructions}\n\n{extra}".strip(),
-        user=payload,
+        user=people.without_emails(payload),  # a document's e-mail addresses, written out too
         schema=SCHEMAS[stage],
         schema_name=f"doc_review_{stage}",
         effort=EFFORT,

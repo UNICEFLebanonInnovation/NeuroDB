@@ -63,7 +63,7 @@ TITLE_CHARS = 300
 NAME_CHARS = 200
 LINE_CHARS = 300
 
-LINK_WITHHELD = "[link withheld]"
+LINK_WITHHELD = people.LINK_WITHHELD  # "[link withheld]"
 # A bare domain needs a name with a letter in it and a top-level domain: one of three letters or more in
 # any case ("UNICEF.ORG", "4children.org/2024"), one of two letters in lower case or before a "/", so that
 # a sentence missing its space ("soon.To", "approx.US", "1.To") is not taken for a link
@@ -291,10 +291,11 @@ def text(
     names: Iterable[str] | None = None,
     extra: frozenset[str] = frozenset(),
 ) -> str:
-    """A text as it may be sent: on one line, without links, email addresses or known person names (and
-    the ``extra`` names of one record, :func:`people.scrub`), and at most ``limit`` characters."""
+    """A text as it may be sent: on one line, without links, email addresses (written out too: the record
+    rule, :func:`people.withhold_addresses`) or known person names (and the ``extra`` names of one record,
+    :func:`people.scrub`), and at most ``limit`` characters."""
     clean = " ".join(people.visible(value).split())
-    clean = people.EMAIL.sub(people.EMAIL_WITHHELD, clean)  # before links: an address holds a domain
+    clean = people.withhold_addresses(clean)  # before links: an address holds a domain
     clean = people.scrub(LINK.sub(LINK_WITHHELD, clean), names, extra)
     return clean[:limit]
 

@@ -369,6 +369,144 @@ def emails_in(text: str) -> set[str]:
     return {e.lower().strip(".") for e in EMAIL.findall(visible(text))}
 
 
+# ---------------------------------------------------------------------------- e-mail addresses written out
+# One rule for every text NeuroDB sends to the AI (first written for the KM Database's questions):
+# :func:`withhold_addresses` takes an address in any form, written out too, from a record's or a document's
+# text (the record rule), and :func:`without_addresses` from what a person types (the typed rule, stronger).
+LINK_WITHHELD = "[link withheld]"  # ``redact.LINK_WITHHELD`` (redact reads models: it reads this one)
+# PostgreSQL's English stop words (its english.stop, copied): the KM Database's search drops them
+# (``km.search.ENGLISH_STOP``), and a question's word before "at" and a domain that is one is no name
+ENGLISH_STOP = frozenset(
+    "i me my myself we our ours ourselves you your yours yourself yourselves he him his himself she her hers "
+    "herself it its itself they them their theirs themselves what which who whom this that these those am is "
+    "are was were be been being have has had having do does did doing a an the and but if or because as "
+    "until while of at by for with about against between into through during before after above below to "
+    "from up down in out on off over under again further then once here there when where why how all any "
+    "both each few more most other some such no nor not only own same so than too very s t can will just "
+    "don should now".split()
+)
+_AT_SIGNS = ("@", "＠", "﹫")
+# what every spelled-out address holds: an "at" (or an at sign) and a domain's ending after a dot ("x at
+# example dot org", "x [at] example.org", "x [ at ] example [ dot ] org", "x -at- example -dot- org"): a text
+# without both is not searched for one (most texts)
+_SPELLED_AT = re.compile(r"\bat\b|[@＠﹫]", re.IGNORECASE)
+_SPELLED_HINT = re.compile(
+    r"(?:\.|\bdot\b\s*[\]\)\}>-]?|\[\.\]|\(\.\)|\{\.\})\s*"
+    r"(?:org|com|net|int|gov|edu|lb|fr|uk|de|ch|ca|ae|sa|qa|jo|eg|nl|se|au|info|biz|ngo|io|co)\b",
+    re.IGNORECASE,
+)
+# a word and "at" before a domain of any case or ending ("x_y at Example.Org", "X AT EXAMPLE.ORG", "x_y at
+# example.invalid", "x at example. org"): an address when the word is its name (:func:`named`). Never a word
+# that ends with a full stop ("e.g. at example.org") nor a number ("4.2 at example.org")
+_LOCAL_PART = r"(?P<local>(?=[\w.+'-]*[^\W\d_])[\w+'-](?:[\w.+'-]*[\w+'-])?)"
+WRITTEN_AT = re.compile(
+    rf"(?<![\w.+'-]){_LOCAL_PART}(?P<at>{_AT})"
+    r"(?P<domain>(?=[\w-]*[^\W\d_])[\w-]+(?:\.[\w-]+)*\.[^\W\d_]{2,24}(?![\w-])"
+    r"|[\w-]+\.\s(?-i:org|com|gov|edu|int)\b)",
+    re.IGNORECASE,
+)
+# what :data:`WRITTEN_AT` needs, besides "at": a dot right before letters, or before a space and an ending
+# (most texts have none: "at school", "at 45.5%", "at home. The")
+DOTTED = re.compile(r"\.(?:[^\W\d_]{2}|\s(?:org|com|gov|edu|int)\b)")
+_LOCAL_WORD = re.compile(rf"([^\W\d_]+){_AT}", re.IGNORECASE)  # an address's name of one plain word
+_AT_WWW = re.compile(rf"{_AT}www\.", re.IGNORECASE)  # "at" before a web address ("at www.unicef.org")
+# the words a question writes before "at" and a domain that name no one ("children at example.org")
+ORDINARY = COMMON_WORDS | ENGLISH_STOP
+# letters and marks that look like those of an address in what a person types ("ａｔ", "example．org", the
+# Cyrillic "а" of "аt"): read as the plain ones, so that an address written with them is found as it reads
+LOOKALIKES = str.maketrans(
+    {chr(0xFF01 + n): chr(0x21 + n) for n in range(94)}
+    | dict(zip("\u3000\u2024\ufe52\u3002\uff61аАеЕоОтТԁαοΟτ", " ....aAeEoOtTdaoOt", strict=True))
+)
+# a question kept before the typed rule, whose address lost only its domain (as a link): its name is still
+# written before "at" ("x at [link withheld]", "x(at)[link withheld]")
+_BEFORE_LINK_WITHHELD = re.compile(
+    rf"(?<![\w.+'-]){_LOCAL_PART}(?P<at>{_AT}){re.escape(LINK_WITHHELD)}", re.IGNORECASE
+)
+
+
+def named(local: str, at: str, typed: bool) -> bool:
+    """Whether ``local``, the word before "at" (``at``) and a domain, is an address's name: it holds a full
+    stop, "_", "+" or a digit, or it and "AT" are in capitals ("X AT EXAMPLE.ORG"); in what a person typed
+    (``typed``), any word but a common one ("children at example.org" keeps "children")."""
+    if re.search(r"[._+\d]", local) or (local.isupper() and "AT" in at):
+        return True
+    return typed and fold(local) not in ORDINARY
+
+
+def web_address(match: re.Match) -> bool:
+    """Whether ``match`` (of ``SPELLED_EMAIL``) is a web address written after a plain word, not an e-mail
+    address: its domain starts with "www." or a path follows it ("available at www.unicef.org", "the guide
+    is at unicef.org/lebanon"). A record's text leaves it to the link rule ("available at [link
+    withheld]"); a name before "at" ("x.y at example.org/") is no plain word."""
+    word = _LOCAL_WORD.match(match.group(0))
+    if not word or word.group(1).isupper():
+        return False
+    return match.string.startswith("/", match.end()) or bool(_AT_WWW.match(match.group(0), word.end(1)))
+
+
+def withhold_addresses(text: str, typed: bool = False, links: bool = True) -> str:
+    """``text`` with its e-mail addresses withheld (``EMAIL``), written out too (``SPELLED_EMAIL``, and
+    :data:`WRITTEN_AT` when the word before "at" is a name: :func:`named`). Without ``typed``, the record
+    rule: a sentence that only looks like an address stays ("published at Example.Org", "located at
+    Tyre.Net", "at school.it was"), and so does a web address after a plain word (:func:`web_address`),
+    unless ``links`` is false (the KM Database's rule, as it was written). ``typed`` (what a person typed:
+    use :func:`without_addresses`): any word but a common one goes with the domain after "at", and a common
+    word keeps its place, the domain withheld as a link ("children at [link withheld]")."""
+    if any(sign in text for sign in _AT_SIGNS):
+        text = EMAIL.sub(EMAIL_WITHHELD, text)
+    if not _SPELLED_AT.search(text):
+        return text
+
+    def spelled(match: re.Match) -> str:
+        word = _LOCAL_WORD.match(match.group(0)) if typed else None
+        if word and fold(word.group(1)) in ORDINARY:
+            return f"{word.group(1)} at {LINK_WITHHELD}"
+        if links and not typed and web_address(match):
+            return match.group(0)
+        return EMAIL_WITHHELD
+
+    def written(match: re.Match) -> str:
+        if named(match.group("local"), match.group("at"), typed):
+            return EMAIL_WITHHELD
+        return f"{match.group('local')} at {LINK_WITHHELD}" if typed else match.group(0)
+
+    if _SPELLED_HINT.search(text):
+        text = SPELLED_EMAIL.sub(spelled, text)
+    return WRITTEN_AT.sub(written, text) if DOTTED.search(text) else text
+
+
+def without_addresses(text: str) -> str:
+    """What a person typed (a question, a page's title, search words) as it is read for an address or a
+    name: no character nobody sees (:func:`visible`), the letters and marks that look like those of an
+    address as the plain ones (:data:`LOOKALIKES`), and every e-mail address withheld, written out too, by
+    the typed rule (:func:`withhold_addresses`)."""
+    return withhold_addresses(visible(text or "").translate(LOOKALIKES), typed=True)
+
+
+def without_emails(text: str) -> str:
+    """A document's or a code-written text sent whole (a document to review or summarise, a report's pages,
+    a daily review finding, a What's new line): its e-mail addresses withheld, written out too, by the
+    record rule (:func:`withhold_addresses`, read without the characters nobody sees); a text that holds
+    none is sent exactly as it is."""
+    shown = visible(text or "")
+    cleaned = withhold_addresses(shown)
+    return text if cleaned == shown else cleaned
+
+
+def without_kept_names(text: str) -> str:
+    """A typed text kept by an earlier cleaning, which took an address's domain as a link and left its name
+    ("x at [link withheld]"): that name withheld with it, by the typed rule; a common word stays ("children
+    at [link withheld]")."""
+    if LINK_WITHHELD not in text:
+        return text
+
+    def kept(match: re.Match) -> str:
+        return EMAIL_WITHHELD if named(match.group("local"), match.group("at"), True) else match.group(0)
+
+    return _BEFORE_LINK_WITHHELD.sub(kept, text)
+
+
 # ---------------------------------------------------------------------------- the names known
 def known_names(refresh: bool = False) -> frozenset[str]:
     """Every person name (folded, two words or more) and email address NeuroDB holds, read once per

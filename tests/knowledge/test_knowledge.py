@@ -601,3 +601,71 @@ def test_admin_adds_a_link_by_hand(client, admin_user, records, corpus):
     assert response.status_code == 302, response.content[-2000:]
     link = doc.links.get(kind="programme_document")
     assert link.origin == "manual" and link.label.startswith("LEB/PCA2026005")
+
+
+@pytest.mark.django_db
+def test_no_written_out_address_reaches_the_knowledge_calls(monkeypatch):
+    """A document's text (its review's findings, key statements and action points; its summary; a periodic
+    report's figures) and a finding's text in a theme paragraph lose any e-mail address, written out too,
+    before the call reads them."""
+    from neurodb.assistant import llm
+    from neurodb.knowledge import periodic, review, review_paragraph
+    from neurodb.knowledge.models import DocumentReviewSettings
+    from tests.written_addresses import RECORD, RECORD_FORMS, leaks
+
+    class Conn:
+        provider = "openai"
+
+        def __init__(self, answer):
+            self.answer, self.requests = answer, []
+
+        def complete(self, request):
+            self.requests.append(request)
+            return llm.Result(
+                text=json.dumps(self.answer),
+                parsed=self.answer,
+                stop="ok",
+                reason="",
+                model="m",
+                served_by="",
+                usage=llm.Usage(),
+                provider="openai",
+            )
+
+    def said(request):
+        return request.user if isinstance(request.user, str) else "\n".join(p.text for p in request.user)
+
+    summary = {"summary": "", "key_points": [], "organisations": [], "places": [], "references": []}
+    monkeypatch.setattr(llm, "record", lambda *a, **k: None)
+    setting = DocumentReviewSettings.load()
+    found = {}
+    for form, written in RECORD_FORMS.items():
+        record = RECORD.format(written)
+        document = Document.objects.create(
+            title="Minutes", text=f"Dropout notes. {record}", status=Document.Status.READY
+        )
+        conn = Conn({"findings": []})
+        ctx = review.Context(api=conn, setting=setting)
+        for stage in (review.FINDINGS, review.SUMMARY, review.ENRICHMENT):
+            review.ask(ctx, stage, f"Document: Minutes\n\n<document>\n{document.text}\n</document>")
+        sent = {f"document review {n}": said(request) for n, request in enumerate(conn.requests)}
+        for name, answer in (("summary", summary), ("periodic figures", {"figures": []})):
+            conn = Conn(answer)
+            monkeypatch.setattr(llm, "connect", lambda *a, conn=conn, **k: conn)
+            if name == "summary":
+                indexing.summarise(document)
+            else:
+                periodic._ai_figures(document, [document.text], [])
+            sent[name] = said(conn.requests[0])
+        finding = SimpleNamespace(
+            document=SimpleNamespace(title=f"Minutes {record}"),
+            page_label="p. 2",
+            finding_date=None,
+            get_category_display=lambda: "Challenge",
+            text=record,
+        )
+        sent["theme paragraph"] = review_paragraph.payload([finding], frozenset())[0]
+        assert "Dropout notes." in sent["summary"]
+        found |= {f"{form} {where}": t for where, t in leaks(sent).items()}
+        document.delete()
+    assert not found, json.dumps(found, ensure_ascii=False, indent=1)

@@ -3,7 +3,9 @@ provider only after people's names, e-mail addresses, links and phone numbers ar
 takes out every one it can find.
 
 - **The question and the earlier turns** (:func:`question`, :func:`history`): the question and the earlier
-  questions and answers of the conversation are cleaned each time they are sent. The question log
+  questions and answers of the conversation are cleaned each time they are sent; a question, typed by the
+  person, first loses every e-mail address written out in any form, the name before "at" too
+  (``watch.people.without_addresses``, the rule for typed text). The question log
   (``AssistantQuestion``) keeps what the person typed: it stays in NeuroDB, the person sees their own
   words in the conversation and under Recent questions, and every request cleans them again with the
   names NeuroDB knows at that moment.
@@ -113,8 +115,11 @@ def text(value: str, names: Iterable[str] | None = None, label: bool = False) ->
 
 
 def question(value: str, names: Iterable[str] | None = None) -> str:
-    """The question as it is sent."""
-    return text(value, names)
+    """The question as it is sent: typed by the person, so every e-mail address written out in any form goes
+    first, the name before "at" too (``watch.people.without_addresses``: "x at example.org", "X AT
+    EXAMPLE.ORG", "x at example.invalid", "x аt example.org" with a Cyrillic "а"; "children at
+    example.org" keeps "children"), then as any text (:func:`text`)."""
+    return text(people.without_addresses(str(value)), names)
 
 
 def history(turns: Iterable[Mapping[str, Any]], names: Iterable[str] | None = None) -> list[dict[str, Any]]:
@@ -126,7 +131,11 @@ def history(turns: Iterable[Mapping[str, Any]], names: Iterable[str] | None = No
     sent = []
     for turn in turns:
         said = {key: turn[key] for key in ("question", "answer") if isinstance(turn.get(key), str)}
-        sent.append({**turn, **{key: text(value, known, key == "answer") for key, value in said.items()}})
+        cleaned = {
+            key: question(value, known) if key == "question" else text(value, known, label=True)
+            for key, value in said.items()
+        }
+        sent.append({**turn, **cleaned})
     return sent
 
 

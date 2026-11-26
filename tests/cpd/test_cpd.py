@@ -706,3 +706,23 @@ def test_documents_download_for_signed_in_users_only(client, viewer, pdf):
     client.force_login(viewer)
     response = client.get(url)
     assert response.status_code == 200 and b"".join(response.streaming_content) == b"%PDF-1.4"
+
+
+def test_a_text_cpd_is_sent_without_e_mail_addresses_written_out(cycle, media, monkeypatch):
+    """A Word or text document's text loses its e-mail addresses (written out too) before it is sent; a PDF
+    is sent whole, as the provider reads it."""
+    from tests.written_addresses import RECORD, RECORD_FORMS, leaks
+
+    found = {}
+    for form, written in RECORD_FORMS.items():
+        fake = SimpleNamespace(responses=FakeResponses(json.dumps(PROPOSED)))
+        monkeypatch.setattr("neurodb.assistant.agent.client", lambda fake=fake: fake)
+        text = f"Outcome 1: Children learn\n{RECORD.format(written)}"
+        doc = CPDocument.objects.create(
+            programme=cycle, title="CPD", file=SimpleUploadedFile("cpd.txt", text.encode("utf-8"))
+        )
+        extraction.run(FrameworkProposal.objects.create(document=doc))
+        sent = fake.responses.calls[0]["input"][0]["content"][0]["text"]
+        assert "Outcome 1: Children learn" in sent
+        found |= {f"{form} {where}": t for where, t in leaks({"document": sent}).items()}
+    assert not found, json.dumps(found, ensure_ascii=False, indent=1)

@@ -21,6 +21,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from neurodb.assistant import llm
+from neurodb.watch import people
 
 from .models import Change, Digest, DigestSubscription
 from .news import sentence, without_archive
@@ -55,7 +56,7 @@ def narrate(audience: str, lines: list[str]) -> tuple[str, str]:
         result = llm.complete(
             llm.Request(
                 system=INSTRUCTIONS.format(audience=audience),
-                user="\n".join(lines[:MAX_LINES]),
+                user=people.without_emails("\n".join(lines[:MAX_LINES])),  # e-mail addresses, written out too
                 as_message=False,
                 max_output_tokens=2000,
             )

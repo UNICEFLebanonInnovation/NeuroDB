@@ -21,6 +21,7 @@ from django.utils import timezone
 
 from neurodb.assistant import llm
 from neurodb.knowledge import text as knowledge_text
+from neurodb.watch import people
 
 from .models import CPDocument, FrameworkProposal, Indicator, Origin, Outcome, Output
 
@@ -125,7 +126,8 @@ def _content(document: CPDocument, data: bytes) -> llm.Pdf | llm.Text:
         raise ExtractionError("The document holds no text.")
     if len(text) > MAX_TEXT_CHARS:
         raise ExtractionError(f"The text is longer than {MAX_TEXT_CHARS:,} characters.")
-    return llm.Text(f"The document ({document.filename}):\n\n{text}")
+    # its e-mail addresses withheld, written out too (a PDF is sent whole, as the provider reads it)
+    return llm.Text(people.without_emails(f"The document ({document.filename}):\n\n{text}"))
 
 
 def extract(document: CPDocument) -> dict[str, Any]:

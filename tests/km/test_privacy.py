@@ -493,3 +493,23 @@ def test_a_download_keeps_a_word_and_a_link_after_at():
     text = "Data were published at Example.Org in 2024."
     assert privacy.for_download(text) == text
     assert privacy.for_ai(text) == f"Data were published at {privacy.LINK_WITHHELD} in 2024."
+
+
+def test_the_address_rule_is_neurodbs_shared_one():
+    """The KM Database's rule for e-mail addresses written out is the one every assistant uses
+    (``watch.people``): a question loses an address in every written-out form, a record's text in the
+    forms the record rule takes, and the KM Database cleans exactly as before."""
+    from neurodb.watch import people
+    from tests.written_addresses import FORMS, NOT_ADDRESSES, RECORD, RECORD_FORMS, TYPED
+
+    for form, written in FORMS.items():
+        for text in (TYPED.format(written), RECORD.format(written), written, written.upper()):
+            for typed in (False, True):
+                assert privacy._emails(text, typed) == people.withhold_addresses(text, typed), (form, text)
+            assert privacy.without_addresses(text) == people.without_addresses(text), (form, text)
+        assert people.without_addresses(TYPED.format(written)) == TYPED.format(privacy.EMAIL_WITHHELD), form
+    for form, written in RECORD_FORMS.items():
+        text = people.visible(RECORD.format(written))
+        assert people.withhold_addresses(text) == RECORD.format(privacy.EMAIL_WITHHELD), form
+    for text in NOT_ADDRESSES:
+        assert people.withhold_addresses(text) == text

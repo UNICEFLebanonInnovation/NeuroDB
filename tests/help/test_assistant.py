@@ -459,3 +459,66 @@ def test_the_guide_look_ups_cite_sections(viewer):
     assert nothing["sections"] == [] and "do not guess" in nothing["note"]
     with pytest.raises(assistant_tools.ToolInputError, match="No section"):
         assistant_tools.run("read_help", {"page": "overview", "slug": "nope"}, registry=assistant.REGISTRY)
+
+
+# ------------------------------------------------------------------------------------ written-out addresses
+def test_no_written_out_address_reaches_the_help_assistant(model, client_viewer, viewer):
+    """The question, the page's title and address, the earlier question and answer of the conversation and a
+    rule flag, as the model is sent them, hold no part of an address in any written-out form."""
+    from decimal import Decimal
+    from types import SimpleNamespace
+    from urllib.parse import quote
+
+    from tests.written_addresses import FORMS, RECORD, RECORD_FORMS, TYPED, leaks
+
+    found = {}
+    with override_settings(**{**ON, "HELP_PER_USER_PER_DAY": 500}):
+        for form, written in FORMS.items():
+            typed = TYPED.format(written)
+            record = RECORD.format(written if form in RECORD_FORMS else FORMS["F00 plain @"])
+            conversation = uuid.uuid4()
+            first = model(reply(say("First answer.")))
+            _events(_ask(client_viewer, typed, conversation))
+            HelpQuestion.objects.filter(conversation=conversation).update(
+                answer=record
+            )  # as the model wrote it
+            second = model(reply(say("Done.")))
+            page = f"https://neurodb.example.invalid/fmm/visits/{quote(written, safe='@()[]')}/"
+            title = f"Visit · write to {written}"
+            _events(_ask(client_viewer, "And on this page?", conversation, page=page, title=title))
+            earlier_question, earlier_answer = second.requests[0]["input"][:2]
+            line = second.requests[0]["instructions"].split("The person is on the page", 1)[1].split("\n")[0]
+            row = SimpleNamespace(
+                detail=record, status="fail", rule="R07", max_points=Decimal(5), points=Decimal(0)
+            )
+            sent = {
+                "question": first.requests[0]["input"][-1]["content"],
+                "earlier question": earlier_question["content"],
+                "earlier answer": earlier_answer["content"],
+                "page title and address": line,
+                "rule flag": tools._result_line(row, None, {}, set(), lambda: frozenset())["detail"],
+            }
+            kept = HelpQuestion.objects.values_list("question", "page", "page_title")
+            sent["kept"] = json.dumps(list(kept), ensure_ascii=False)  # what NeuroDB keeps of the question
+            found |= {f"{form} {where}": text for where, text in leaks(sent).items()}
+            HelpQuestion.objects.all().delete()
+    assert not found, json.dumps(found, ensure_ascii=False, indent=1)
+
+
+def test_an_earlier_question_kept_before_the_address_rule_is_cleaned_again(on, model, client_viewer, viewer):
+    """A question kept when only the domain of a written-out address was taken (as a link) loses the name
+    too when it is sent again."""
+    conversation = uuid.uuid4()
+    HelpQuestion.objects.create(
+        user=viewer,
+        conversation=conversation,
+        page="/fmm/",
+        page_title="Monitoring insights",
+        question="out of school children in Akkar, contact zfakemira at [link withheld] before June",
+        answer="First answer.",
+        status=HelpQuestion.Status.ANSWERED,
+    )
+    client = model(reply(say("Done.")))
+    _events(_ask(client_viewer, "And then?", conversation))
+    earlier = client.requests[0]["input"][0]["content"]
+    assert earlier == "out of school children in Akkar, contact [email withheld] before June"

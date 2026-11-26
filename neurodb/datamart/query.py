@@ -630,8 +630,9 @@ def clean_written(
     fm: bool = False,
     amounts: bool = False,
 ) -> str:
-    """``text`` without e-mail addresses (whole, cut short, spaced or spelled out), links, the person names
-    NeuroDB knows (``names``) and ``own``, phone numbers (:func:`_phones`; field monitoring's rule with
+    """``text`` without e-mail addresses (whole, cut short, spaced or spelled out: the record rule of
+    ``watch.people.withhold_addresses``, "X AT EXAMPLE.ORG", "x_y at example.invalid"), links, the person
+    names NeuroDB knows (``names``) and ``own``, phone numbers (:func:`_phones`; field monitoring's rule with
     ``fm``) and names written after a title (after Sheikh or Dr only without ``keeps``, and always in field
     monitoring), each replaced by its placeholder, with its line breaks and spaces as written (a name
     written over two lines is still found: names are compared word by word; an address or a phone number
@@ -650,9 +651,20 @@ def clean_written(
     def email(_match: re.Match) -> str:
         return people.EMAIL_WITHHELD
 
+    def spelled(match: re.Match) -> str:  # a web address after a plain word is a link ("available at www...")
+        return match.group(0) if people.web_address(match) else people.EMAIL_WITHHELD
+
+    def written(match: re.Match) -> str:  # a name before "at" and a domain: the record rule
+        named = people.named(match.group("local"), match.group("at"), typed=False)
+        return people.EMAIL_WITHHELD if named else match.group(0)
+
     if _SPELLED_HINT.search(text):
-        text = people.SPELLED_EMAIL.sub(people.EMAIL_WITHHELD, text)
-        text = _on_one_line(text, people.SPELLED_EMAIL.finditer, email)
+        text = people.SPELLED_EMAIL.sub(spelled, text)
+        text = _on_one_line(text, people.SPELLED_EMAIL.finditer, spelled)
+        # a name before "at" and a domain of any case or ending ("X AT EXAMPLE.ORG", "x_y at example.invalid";
+        # "published at Example.Org" stays)
+        if people.DOTTED.search(text):
+            text = _on_one_line(people.WRITTEN_AT.sub(written, text), people.WRITTEN_AT.finditer, written)
     # redact.text without putting the text on one line: addresses first (an address holds a domain),
     # links, then the names
     text = people.EMAIL.sub(people.EMAIL_WITHHELD, text)

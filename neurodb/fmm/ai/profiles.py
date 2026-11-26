@@ -101,7 +101,8 @@ def text_problems(text: str, names_: frozenset[str] | None = None) -> list[str]:
 
     text = str(text or "")
     found = []
-    if people.EMAIL.search(text):
+    # an address written out too ("x at example dot org"), as the rule for typed text finds it
+    if people.EMAIL.search(text) or people.EMAIL_WITHHELD in people.without_addresses(text):
         found.append("It contains an e-mail address; prompts never name people.")
     if redact.LINK.search(text):
         found.append("It contains a link; links are never sent to the AI.")

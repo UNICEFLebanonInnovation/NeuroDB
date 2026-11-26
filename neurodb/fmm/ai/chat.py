@@ -10,8 +10,9 @@ The view (``fmm.views.chat_stream``) checks the question and the limits, writes 
   so a look-up can narrow the filter but never widen it, and passes every result through
   ``privacy.chat_filter`` (cleaned again, last check);
 - re-sends the last turns of the same conversation and filter (:func:`history`): the questions (cleaned
-  when asked) and the checked answers, cleaned again and cut; the visits those answers cited and the
-  figures their look-ups returned count as looked up, so a follow-up may cite them;
+  when asked and again, by the rule for typed text) and the checked answers, cleaned again and cut; the
+  visits those answers cited and the figures their look-ups returned count as looked up, so a follow-up
+  may cite them;
 - restarts once per sampling parameter the model refuses before it writes anything (``fmm.ai.sampling``;
   OpenAI only: no sampling parameter is sent to Claude);
 - checks the answer (:mod:`.citations`) before it is shown and kept, and records the call in the AI use
@@ -48,9 +49,10 @@ QUESTION_CHARS = 1000
 TOKENS = 30_000  # what one answer may need, asked of the day's AI budget before it starts
 
 
-def clean_question(question: str) -> str:
-    """The question as it is sent and kept: names, e-mail addresses, phone numbers and links removed."""
-    return privacy.clean(question, QUESTION_CHARS)[0]
+def clean_question(question: str, names_: frozenset[str] | None = None) -> str:
+    """The question as it is sent and kept: names, e-mail addresses (written out in any form too: the rule
+    for typed text, ``privacy.clean_typed``), phone numbers and links removed."""
+    return privacy.clean_typed(question, QUESTION_CHARS, names_)[0]
 
 
 def history(
@@ -75,7 +77,8 @@ def history(
     for row in rows:
         turns.append(
             {
-                "question": row["question"],
+                # cleaned when asked, and again: a question kept before a rule was added gets it too
+                "question": clean_question(row["question"], names_),
                 "answer": privacy.clean(row["answer"], settings.FMM_HISTORY_ANSWER_CHARS, names_)[0],
             }
         )

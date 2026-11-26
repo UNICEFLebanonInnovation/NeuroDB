@@ -765,3 +765,156 @@ def test_an_ai_check_sends_one_record_with_no_person_no_visit_and_no_entity_name
             "objective",
         }
     assert "412 children" in blob  # the figures of the texts stay
+
+
+# ------------------------------------------------------------------------------------ written-out addresses
+def test_a_typed_text_loses_an_address_in_every_written_out_form():
+    """What a person types (a chat question, the page's search words) loses an e-mail address however it is
+    written out: the name before "at" too, not only the domain as a link."""
+    from tests.written_addresses import FORMS, TYPED
+
+    for form, written in FORMS.items():
+        assert privacy.clean_typed(TYPED.format(written), 1000, frozenset())[0] == TYPED.format(
+            people.EMAIL_WITHHELD
+        ), form
+    # a common word before "at" and a domain is no name: only the domain goes, as a link
+    assert (
+        privacy.clean_typed("children at example.org", 100, frozenset())[0] == "children at [link withheld]"
+    )
+    # a question kept before this rule, whose domain was taken as a link: its name goes when it is sent again
+    for kept in ("contact zfakemira at [link withheld] soon", "contact zfakemira(at)[link withheld] soon"):
+        assert privacy.clean_typed(kept, 100, frozenset())[0] == "contact [email withheld] soon"
+
+
+def test_a_record_text_loses_a_written_out_address_and_keeps_its_sentences():
+    """A record's text (a narrative, an answer) loses an address written out (the record rule), and keeps a
+    sentence that only looks like one ("published at Example.Org" loses its link, not its words)."""
+    from tests.written_addresses import NOT_ADDRESSES, RECORD, RECORD_FORMS
+
+    for form, written in RECORD_FORMS.items():
+        cleaned = privacy.clean(RECORD.format(written), 1000, frozenset())[0]
+        assert cleaned == RECORD.format(people.EMAIL_WITHHELD), form
+        with pytest.raises(privacy.PrivacyRefused, match="e-mail address"):  # the last check stops it
+            privacy.assert_clean({"text": RECORD.format(written)}, frozenset())
+    for text, sent in NOT_ADDRESSES.items():
+        assert privacy.clean(text, 1000, frozenset())[0] == sent
+        privacy.assert_clean({"text": sent}, frozenset())
+
+
+def test_no_written_out_address_reaches_the_chat(built, viewer, client_viewer, monkeypatch):
+    """The chat's question, its earlier question and answer, and a look-up's narrative, as the model is sent
+    them, hold no part of an address in any written-out form."""
+    import json
+    import uuid
+
+    from django.test import override_settings
+    from django.urls import reverse
+
+    from neurodb.assistant import agent
+    from neurodb.datamart.models import MonitoringFinding
+    from neurodb.fmm.models import ChatQuestion
+    from tests.assistant.test_assistant import FakeClient, call, reply, say
+    from tests.written_addresses import FORMS, RECORD, RECORD_FORMS, TYPED, leaks
+
+    people.forget()
+    found = {}
+    with override_settings(**CHAT_ON):
+        for form, written in FORMS.items():
+            typed = TYPED.format(written)
+            record = RECORD.format(written if form in RECORD_FORMS else FORMS["F00 plain @"])
+            MonitoringFinding.objects.filter(datamart_id=103).update(
+                narrative_finding=f"The partner keeps its registers up to date. {record}"
+            )
+            conversation = uuid.uuid4()
+            client = FakeClient([reply(say("First answer."))])
+            monkeypatch.setattr(agent, "client", lambda client=client: client)
+            data = {"question": typed, "scope": "year=2026&section=", "conversation": str(conversation)}
+            b"".join(client_viewer.post(reverse("fmm:chat_stream"), data).streaming_content)
+            asked = client.requests[0]["input"][-1]["content"]
+            ChatQuestion.objects.filter(conversation=conversation).update(
+                answer=record
+            )  # as the model wrote it
+            client = FakeClient([reply(call("fm_visit", {"visit": "1722"})), reply(say("Done."))])
+            monkeypatch.setattr(agent, "client", lambda client=client: client)
+            data["question"] = "And what did the visit find?"
+            b"".join(client_viewer.post(reverse("fmm:chat_stream"), data).streaming_content)
+            earlier_question, earlier_answer = client.requests[0]["input"][:2]
+            (output,) = [
+                json.loads(i["output"])
+                for i in client.requests[1]["input"]
+                if i.get("type") == "function_call_output"
+            ]
+            notes = [e["narrative"] for e in output["records"] if "registers" in (e.get("narrative") or "")]
+            assert notes, (form, output)
+            sent = {
+                "question": asked,
+                "earlier question": earlier_question["content"],
+                "earlier answer": earlier_answer["content"],
+                "narrative": " ".join(notes),
+            }
+            found |= {f"{form} {where}": text for where, text in leaks(sent).items()}
+            ChatQuestion.objects.all().delete()
+    assert not found, json.dumps(found, ensure_ascii=False, indent=1)
+
+
+def test_no_written_out_address_reaches_the_brief_the_checks_or_the_action_points(brief_world):
+    """The brief (a narrative, the page's search words), an AI check, the action point review and the AI
+    summary of action points: no part of an address in any written-out form reaches the model."""
+    import json
+    from urllib.parse import quote
+
+    from django.http import QueryDict
+
+    from neurodb.datamart import models as dm
+    from neurodb.fmm.ai import ap_review, ap_summary, checks, facts, insights
+    from neurodb.fmm.models import Insight
+    from neurodb.fmm.scope import Scope
+    from tests.written_addresses import FORMS, RECORD, RECORD_FORMS, TYPED, leaks
+
+    def strings(value):
+        if isinstance(value, str):
+            try:
+                inner = json.loads(value)
+            except ValueError:
+                yield value
+                return
+            yield from [inner] if isinstance(inner, str) else strings(inner)
+        elif isinstance(value, dict):
+            for inner in value.values():
+                yield from strings(inner)
+        elif isinstance(value, list):
+            for inner in value:
+                yield from strings(inner)
+
+    names_ = privacy.names()
+    found = {}
+    for form, written in FORMS.items():
+        scope = Scope.from_params(QueryDict(f"year=2026&section=&q={quote(TYPED.format(written))}"))
+        found |= {
+            f"{form} {w}": t for w, t in leaks({"search words": facts.filters_text(scope, names_)}).items()
+        }
+    for n, (form, written) in enumerate(RECORD_FORMS.items(), 1):
+        record = RECORD.format(written)
+        dm.MonitoringFinding.objects.filter(datamart_id=103).update(
+            narrative_finding=f"The partner keeps its registers up to date for the children. {record}"
+        )
+        brief_world.clear()
+        row = insights.generate(_chat_scope(), trigger=Insight.Trigger.TEST)
+        assert brief_world, (form, row.status, row.reason)
+        notes = [t for t in strings(brief_world[0]) if "registers" in t]
+        assert notes, form
+        dm.ActionPoint.objects.filter(reference_number__startswith="AP-ADDR-").delete()
+        point = dm.ActionPoint.objects.create(
+            datamart_id=900_000 + n, reference_number=f"AP-ADDR-{n}", description=record
+        )
+        points, _total = ap_summary.collect(dm.ActionPoint.objects.filter(pk=point.pk), 10, names_)
+        sent = {
+            "brief narrative": " ".join(notes),
+            "AI check": checks.cleaned({"narrative_finding": record}, names_, 600)["narrative_finding"],
+            "action point review": json.dumps(
+                ap_review.payload(record, record, 600, names_), ensure_ascii=False
+            ),
+            "action point summary": points[0]["text"],
+        }
+        found |= {f"{form} {where}": text for where, text in leaks(sent).items()}
+    assert not found, json.dumps(found, ensure_ascii=False, indent=1)

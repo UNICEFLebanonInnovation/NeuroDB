@@ -27,6 +27,8 @@ from typing import Any
 from django.db import transaction
 from django.utils import timezone
 
+from neurodb.watch import people
+
 from . import pdf_layout
 from .models import Document, ReportFigure, ReportSeries
 from .text import PAGE_BREAK
@@ -276,8 +278,8 @@ def _ai_figures(
         llm.Request(
             user=(
                 llm.Text(FIGURES_PROMPT),
-                llm.Text("\n".join(context)),
-                llm.Text(f"<report>\n{body}\n</report>"),
+                llm.Text(people.without_emails("\n".join(context))),
+                llm.Text(people.without_emails(f"<report>\n{body}\n</report>")),  # addresses, written out too
             ),
             schema=FIGURES_SCHEMA,
             schema_name="report_figures",
