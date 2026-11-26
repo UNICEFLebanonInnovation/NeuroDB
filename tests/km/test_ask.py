@@ -1007,6 +1007,36 @@ def test_the_question_kept_is_the_cleaned_one(client_viewer, ai):
     assert "zqkmtoken" in question
 
 
+@pytest.mark.parametrize(
+    "address",
+    [
+        "zayna.fakeharb at example.org",
+        "zayna.fakeharb(at)example.org",
+        "zayna.fakeharb -at- mail.example.org",
+        "zayna.fakeharb [at] example [dot] org",
+    ],
+)
+def test_an_address_written_out_in_a_question_is_never_kept_sent_or_written(client_viewer, ai, address):
+    import io
+    import zipfile
+
+    factory.load(factory.workbook(documents=1, findings=2))
+    conversation = uuid.uuid4()
+    fake = ai([answer("Fake [TST-0001-F00001]."), answer("Fake [TST-0001-F00001].")])
+    done(post(client_viewer, f"zqkmtoken in Akkar, contact {address}", conversation=conversation))
+    done(post(client_viewer, f"what about {address}?", conversation=conversation))
+    rows = list(KMQuestion.objects.order_by("created_at"))
+    assert [r.status for r in rows] == ["answered", "answered"]
+    for row in rows:
+        assert "fakeharb" not in row.question and privacy.EMAIL_WITHHELD in row.question
+        assert "fakeharb" not in json.dumps(row.new_subject) and "fakeharb" not in json.dumps(row.terms)
+        response = client_viewer.get(reverse("km:ask_findings", args=[row.pk]), {"export": "xlsx"})
+        with zipfile.ZipFile(io.BytesIO(response.content)) as book:
+            assert not any(b"fakeharb" in book.read(name) for name in book.namelist())
+    assert fake.calls("km_terms") and len(fake.calls()) == 2
+    assert "fakeharb" not in json.dumps(fake.requests, default=str)
+
+
 # ------------------------------------------------------------------------------------------------- the tab
 def test_the_ask_tab(client_viewer, ai, settings):
     factory.load(factory.workbook(documents=2, findings=4))
@@ -1864,6 +1894,32 @@ def _rain():
         ("Summarise that evaluation of the fake cash grant", False),
         ("Did enrolment change this year in Akkar?", False),
         ("Is there a shorter version of the report on child labour?", False),
+        ("Why do families move and change schools so often?", False),
+        # a rework after praise, or opened mid-sentence by "but", "and", "so", "please" or "can you"
+        ("this is good but can you shorten it", True),
+        ("good job, now rewrite it for the teachers who left", True),
+        ("that's great can you make it shorter", True),
+        ("the paragraph is too long please shorten it", True),
+        ("nice and can you make it shorter", True),
+        # another language, length or year of the same subject
+        ("the same in Arabic", True),
+        ("I need it in Arabic", True),
+        ("can I have it in French", True),
+        ("please answer in Arabic", True),
+        ("is there an update this year?", True),
+        ("is there anything newer this year?", True),
+        # a lens on a group
+        ("now focus on the teachers who left", True),
+        ("with a focus on the teachers who left", True),
+        # translating findings of a subject of its own, or a language as a subject: a new question
+        ("can you translate the key findings on child marriage into Arabic?", False),
+        ("translate the findings on the teachers who left into French", False),
+        ("I need the findings on Arabic literacy of the teachers who left", False),
+        # "can you" in a question of its own, "too long" of something else
+        ("What support can you give them in Akkar?", False),
+        ("How can you make it more accessible for the teachers who left?", False),
+        ("Why is the school day too long for the teachers who left?", False),
+        ("the answer is too technical, can you simplify it?", True),
     ],
 )
 def test_a_follow_up_refers_to_the_earlier_answer_or_has_no_subject_of_its_own(ai, today, question, follows):
@@ -1906,6 +1962,18 @@ def test_thanks_and_the_words_of_a_rework_are_never_searched():
     ):
         assert words_of(question) == [], question
     assert words_of("now with a focus on boys") == [["boys"]]
+    # praise before a rework, and the words that say the answer is too long
+    for question in (
+        "this is good but can you shorten it",
+        "that's great can you make it shorter",
+        "thanks but can you make it shorter",
+        "very good but please summarise it in 3 bullet points",
+        "the paragraph is too long please shorten it",
+        "it is too long can you make it shorter",
+    ):
+        assert words_of(question) == [], question
+    assert words_of("good job, now rewrite it for girls") == [["girls"]]
+    assert words_of("good job please revise the paragraph with a focus on girls") == [["girls"]]
 
 
 @pytest.mark.parametrize(

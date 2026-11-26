@@ -377,7 +377,35 @@ REWORKS = (
     "make it more formal",
     "in Arabic please",
     "and in French?",
+    # another language or length, in other words
+    "the same in Arabic",
+    "I need it in Arabic",
+    "can I have it in French",
+    "shorter please",
+    "a longer version",
+    "I need it shorter",
+    "please answer in Arabic",
+    "can you give it to me in arabic",
+    "can u do it in arabic",
+    # after praise, or mid-sentence after "but", "and", "so", "please" or "can you"
+    "this is good but can you shorten it",
+    "this is good but can you make it shorter?",
+    "good job, now rewrite it for girls",
+    "good job please revise the paragraph with a focus on girls",
+    "that's great can you make it shorter",
+    "that's great but please make it shorter",
+    "thanks but can you make it shorter",
+    "nice and can you make it shorter",
+    "very good but please summarise it in 3 bullet points",
+    "the paragraph is too long please shorten it",
+    "it is too long can you make it shorter",
+    "it is fine so make it shorter",
+    # a population group as a lens
+    "now focus on refugees",
+    "with a focus on refugees",
 )
+# words of a rework, a language, a length or praise: never searched
+NOT_SEARCHED = {"arabic", "french", "shorter", "longer", "long", "good", "great", "nice", "job", "fine"}
 
 
 @pytest.mark.parametrize("question", REWORKS)
@@ -388,6 +416,7 @@ def test_every_way_of_asking_to_rework_q2_keeps_its_places_years_and_findings(ai
     assert "places" in picked.kept and "years" in picked.kept
     assert picked.filters.year == ["2025", "2024"]  # 2024-2026, of the years the version holds
     assert [f.finding_id for f in picked.findings][:3] == Q2_CITED
+    assert not NOT_SEARCHED & {w for g in picked.groups for alt in g for w in alt.split()}, picked.groups
 
 
 @pytest.mark.parametrize("question", ["rephrase the answer in simpler words", "can you make it shorter?"])
@@ -459,3 +488,45 @@ def test_q6_written_with_for_all_governorates_after_q5_is_a_new_question(ai, tod
     assert {f.finding_id for f in picked.findings} == {
         f.finding_id for f in _picked(Q6, earlier=earlier).findings
     }
+
+
+# Q3's answer says what the findings lack and where the Excel is, as the prompt asks (rules 3 and 9): no
+# sentence of it is counted as citing no finding
+Q3_LEAD = (
+    "In the South and Nabatieh, girls with disabilities had less access to school than other children "
+    "[TST-0004-F00001]. In Nabatieh, 41% of children lacked safe water, with no figure by sex "
+    "[TST-0002-F00002]."
+)
+Q3_TAILS = (
+    "Figures by disability are missing for the South governorate and for Nabatieh.",
+    "An Excel and a CSV of the findings read are available under this answer.",
+    "Figures by disability are missing for the South governorate and for Nabatieh. An Excel and a CSV of the "
+    "findings read are available under this answer.",
+    "Sex-disaggregated figures are missing for most governorates.",
+    "Figures by disability are missing for the South governorate and for Nabatieh.\n\nThe Excel and the CSV of "
+    "these findings are under this answer.",
+    "Data on children with disabilities are missing in the findings for Nabatieh.",
+    "Data disaggregated by disability are not available for the South governorate.",
+    "The Excel and the CSV under this answer list each finding read with its publication year and Finding ID.",
+    "The Excel under this answer lists every finding read, including the ones not cited here.",
+    "The Excel you asked for is under this answer.",
+)
+
+
+@pytest.mark.parametrize("tail", Q3_TAILS)
+def test_q3_saying_what_is_missing_and_where_the_excel_is_cites_every_claim(client_viewer, ai, today, tail):  # noqa: F811
+    factory.load(build(DOCS))
+    conversation = uuid.uuid4()
+    ai(
+        [
+            answer("In Mount Lebanon, 18,300 children were out of school [TST-0001-F00001].", "partly"),
+            answer("In Nabatieh, 41% lacked safe water [TST-0002-F00002].", "partly"),
+            answer(f"{Q3_LEAD}\n\n{tail}", "partly"),
+        ]
+    )
+    for question in (Q1, Q2):
+        done(post(client_viewer, question, conversation=conversation))
+    final = done(post(client_viewer, Q3, conversation=conversation))
+    row = KMQuestion.objects.order_by("-created_at").first()
+    assert row.cited == ["TST-0004-F00001", "TST-0002-F00002"] and row.uncited == 0
+    assert "cite no finding" not in final["notice"] and "cites no finding" not in final["notice"]

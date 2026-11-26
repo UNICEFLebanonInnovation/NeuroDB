@@ -11,12 +11,15 @@ workbook's text and never another NeuroDB table.
   "Bint Jbeil", "North" in "North Metn" or "North Bekaa", "South" in "South Metn" or "South Bekaa":
   :func:`shadows`), but a text that also writes it on its own names it ("the Bekaa and North Bekaa":
   :func:`standalone`), and the other place's findings still count for that other place in the same group
-  ("Mount Lebanon and Nabatieh", a breakdown).
+  ("Mount Lebanon and Nabatieh", a breakdown). Only a space or one hyphen joins the words of a place's
+  name (:data:`JOIN`): "the South, Bekaa and Akkar", "the South. Bekaa ..." and "the North, Bekaa and
+  Akkar" name each place, never South Bekaa or North Bekaa.
 - **"South Lebanon", "the south", "the southern governorates", "the southern region" or "areas"** mean the
   South and Nabatieh governorates; "South governorate" the South only. **"The northern governorates", "the
   northern region"** mean the North and Akkar. A region's part of a place is that place ("the southern
-  region of the Bekaa"). "South Metn" is Baabda (Mount Lebanon), "North Bekaa" Baalbek-Hermel, "South
-  Bekaa" the Bekaa.
+  region of the Bekaa": a place's name after "of", "in" or "within"); any other word after it keeps the
+  region ("the southern governorates in light of the escalation"). "South Metn" is Baabda (Mount Lebanon),
+  "North Bekaa" Baalbek-Hermel, "South Bekaa" the Bekaa.
 - **Governorate words** ("governorate", "gov", "mohafaza") and **district words** ("district", "caza") are
   part of the place when a place is named, and otherwise ask for a breakdown (:attr:`Reading.breakdown`:
   "all governorates", "by governorate", "all gov", "per governorate", "across governorates", "across
@@ -328,9 +331,9 @@ REGION_NAMES = {
     ("north", "akkar"): "the north (North and Akkar governorates)",
 }
 # a region's part of a place is that place ("the southern region of the Bekaa", "the southern areas of Mount
-# Lebanon": the Bekaa, Mount Lebanon), never the region; "of Lebanon" and "of the country" keep the region
+# Lebanon": the Bekaa, Mount Lebanon), never the region; any other word after "of", "in" or "within" keeps
+# the region ("of Lebanon", "in light of the escalation", "in collective shelters": :func:`_of_a_place`)
 _AREA = re.compile(r"(?:regions?|areas?|parts?|districts|governorates)$")
-_OF_A_PLACE = r"(?!\s+(?:of|in|within)\s+(?:the\s+)?(?!lebanon\b|country\b)\w)"
 THE = frozenset({"north", "south"})  # said "the North", "the South"
 GOVERNORATE_WORDS = (
     "governorates",
@@ -390,8 +393,27 @@ NATIONAL = (
     "national scale",
 )
 ARTICLE = r"(?:(?:the|el|al|an|ash|ech)[\s-]+)?"  # "the North", "El Nabatieh", "al-Koura"
+# between the words of a place's name, as questions and texts write it: spaces or one hyphen ("North Bekaa",
+# "North-Bekaa"), never a comma, a full stop or a line break ("the North, Bekaa and Akkar": the North, the
+# Bekaa and Akkar). A pattern of Python and of PostgreSQL alike
+JOIN = "(?:[ \t\u00a0]+|-)"
 
 BY_KEY: dict[str, Place] = {p.key: p for p in (*GOVERNORATES, *DISTRICTS)}
+
+
+def _joined(spelling: str) -> str:
+    """A pattern of ``spelling`` with :data:`JOIN` between its words ("north bekaa": "North Bekaa" and
+    "North-Bekaa", never "North, Bekaa")."""
+    return JOIN.join(re.escape(word) for word in re.split(r"[ -]+", spelling))
+
+
+@cache
+def _of_a_place() -> str:
+    """After a region's spelling ("the southern region"): no place's spelling after "of", "in" or "within"
+    ("the southern region of the Bekaa" is the Bekaa)."""
+    spellings = sorted({s for p in (*GOVERNORATES, *DISTRICTS) for s in p.spellings}, key=len, reverse=True)
+    names = "|".join(_joined(s) for s in spellings)
+    return rf"(?!\s+(?:of|in|within)\s+{ARTICLE}(?:{names})(?![\w'-]))"
 
 
 @cache
@@ -404,10 +426,10 @@ def _aliases() -> list[tuple[re.Pattern, tuple[str, ...], str]]:
         for spelling in place.spellings:
             found.setdefault(spelling, ((place.key,), name, r"(?:\s+camps?)?" if place.camp else ""))
     for spelling, keys in REGIONS.items():
-        found[spelling] = (keys, REGION_NAMES[keys], _OF_A_PLACE if _AREA.search(spelling) else "")
+        found[spelling] = (keys, REGION_NAMES[keys], _of_a_place() if _AREA.search(spelling) else "")
     return [
         (
-            re.compile(rf"(?<![\w'-]){ARTICLE}{re.escape(spelling)}{suffix}(?![\w'-])", re.IGNORECASE),
+            re.compile(rf"(?<![\w'-]){ARTICLE}{_joined(spelling)}{suffix}(?![\w'-])", re.IGNORECASE),
             keys,
             name,
         )
@@ -542,27 +564,35 @@ def shadows(spelling: str) -> tuple[str, ...]:
 
 
 @cache
-def standalone(spelling: str) -> str:
-    """A PostgreSQL pattern of ``spelling`` (a word that :func:`shadows` other places' spellings) written on
-    its own, never as a word of those spellings: "bekaa" in "the Bekaa and North Bekaa" (its first word),
-    never in "North Bekaa" alone. The shadowing spellings are two words: the word before it (the word before
-    ``spelling`` is not that one: a lookahead from the word's start, as a lookbehind reads the text again at
-    each place) or the word after it."""
-    before, after = set(), set()
-    for longer in shadows(spelling):
-        words = re.split(r"[\s-]+", longer)
-        at = words.index(spelling)
-        if at:
-            before.add(r"\W+".join(words[:at]))
-        if at < len(words) - 1:
-            after.add(r"\W+".join(words[at + 1 :]))
+def longer_names() -> frozenset[str]:
+    """The spellings that hold a word another governorate's place is spelt with ("north bekaa", "south
+    metn", "bint jbeil": :func:`shadows`): a text names them only as written, their words joined by
+    :data:`JOIN` ("the North, Bekaa and Akkar" is no North Bekaa)."""
+    every = (*GOVERNORATES, *DISTRICTS)
+    return frozenset(longer for p in every for s in p.spellings for longer in shadows(s))
 
-    def one_of(found: set[str]) -> str:
-        return "|".join(sorted(found, key=lambda w: (-len(w), w)))
 
-    lead = rf"(?:^\W*|\m(?!(?:{one_of(before)})\M)\w+\W+)" if before else r"\m"
-    ahead = rf"(?!\W+(?:{one_of(after)})\M)" if after else ""
-    return rf"{lead}{spelling}\M{ahead}"
+def _one_of(spellings) -> str:
+    return "|".join(_joined(s) for s in sorted(set(spellings), key=lambda w: (-len(w), w)))
+
+
+@cache
+def as_written(spellings: tuple[str, ...]) -> str:
+    """A PostgreSQL pattern of the names ``spellings`` (:func:`longer_names`) as a text writes them."""
+    return rf"\m(?:{_one_of(spellings)})\M"
+
+
+@cache
+def standalone(spellings: tuple[str, ...]) -> tuple[str, str]:
+    """PostgreSQL patterns that find ``spellings`` (words that :func:`shadows` other places' spellings)
+    written on their own: the words, and the longer names that hold them (:func:`as_written`). A text names
+    one when it still writes the word once those names are taken out: "the Bekaa and North Bekaa" names the
+    Bekaa, "North Bekaa" and "North-Bekaa" alone do not, "the North, Bekaa and Akkar" and "the South. Bekaa
+    ..." name the North or the South and the Bekaa. Read in two steps, the plain word first, so that only
+    the texts that write it are read again (one pattern of lookarounds would be tried at every word of
+    every text)."""
+    longer = [name for s in spellings for name in shadows(s)]
+    return rf"\m(?:{_one_of(spellings)})\M", as_written(tuple(longer))
 
 
 def breakdown_alternatives() -> list[str]:

@@ -358,8 +358,8 @@ OWN = re.compile(rf"(?:\b[A-Z]\.\s*)?(?<![\w'’\-])([{_CAP}][\w\-]*)(?=(?:['’
 
 
 def _own(text: str, own: frozenset[str]) -> str:
-    """Step 7: the document's own authors by their surname ("J. Doe", "Doe's", "the Doe-led survey"),
-    withheld."""
+    """Step 7: the document's own authors by their surname ("J. Doe", "Doe's", "the Doe-led survey",
+    "Doe2019"), withheld."""
     if not own:
         return text
 
@@ -367,10 +367,20 @@ def _own(text: str, own: frozenset[str]) -> str:
         word = match.group(1)
         if fold(word) in own:
             return NAME_WITHHELD
-        head = _hyphen_head(word, own)
+        head = _hyphen_head(word, own) or _glued_head(word, own)
         return NAME_WITHHELD + word[head:] if head else match.group(0)
 
     return OWN.sub(one, text)
+
+
+_LEADING_LETTERS = re.compile(r"[^\W\d_]+(?=[\d_])")
+
+
+def _glued_head(word: str, surnames: frozenset[str]) -> int:
+    """The length of a surname of ``surnames`` that starts ``word`` before a digit or "_" ("Doe2019",
+    "doe_survey": the "2019" or "_survey" stays), or 0."""
+    head = _LEADING_LETTERS.match(word)
+    return head.end() if head and fold(head.group()) in surnames else 0
 
 
 def _hyphen_head(word: str, surnames: frozenset[str]) -> int:
@@ -641,10 +651,11 @@ def _shapes(text: str, people: People, words: list[str]) -> str:
 
 _AT_SIGNS = ("@", "＠", "﹫")
 # what every spelled-out address holds: an "at" (or an at sign) and a domain's ending after a dot ("x at
-# example dot org", "x [at] example.org"): a text without both is not searched for one (most texts)
+# example dot org", "x [at] example.org", "x [at] example [dot] org"): a text without both is not searched for
+# one (most texts)
 _SPELLED_AT = re.compile(r"\bat\b|[@＠﹫]", re.IGNORECASE)
 _SPELLED_ENDING = re.compile(
-    r"(?:\.|\bdot\b|\[\.\]|\(\.\)|\{\.\})\s*"
+    r"(?:\.|\bdot\b[\]\)\}]?|\[\.\]|\(\.\)|\{\.\})\s*"
     r"(?:org|com|net|int|gov|edu|lb|fr|uk|de|ch|ca|ae|sa|qa|jo|eg|nl|se|au|info|biz|ngo|io|co)\b",
     re.IGNORECASE,
 )
@@ -778,6 +789,9 @@ def clean_question(question: str, people: People = NOBODY) -> str:
     rule (:func:`typed_for_ai`)."""
     from neurodb.fmm import privacy as fmm_privacy
 
+    # an address written out first, on the text as typed ("x at example.org", "x [at] example [dot] org"):
+    # the cleaning of links would otherwise take its domain only, and leave its name
+    question = _emails(watch_people.visible(question or ""))
     return typed_for_ai(fmm_privacy.clean(question, QUESTION_CHARS)[0], people)
 
 
@@ -814,9 +828,9 @@ def typed_for_ai(text: str, people: People = NOBODY) -> str:
 
 def any_case(text: str, people: People = NOBODY) -> str:
     """``text`` with the KM Database's surnames withheld whatever their case ("what did doe find", "doe's
-    survey", "j. doe", "doe-led"), except the surnames its texts also write as ordinary words
-    (``people.ordinary``). Run again on a text it cleaned, it changes nothing: what a question sent to the
-    AI is checked with (an earlier question of a conversation too)."""
+    survey", "j. doe", "doe-led", "doe2019", "doe_survey"), except the surnames its texts also write as
+    ordinary words (``people.ordinary``). Run again on a text it cleaned, it changes nothing: what a question
+    sent to the AI is checked with (an earlier question of a conversation too)."""
     words = people.surnames - people.ordinary
     if not text or not words:
         return text
@@ -825,7 +839,7 @@ def any_case(text: str, people: People = NOBODY) -> str:
         word = match.group(1)
         if fold(word) in words:
             return NAME_WITHHELD
-        head = _hyphen_head(word.lower(), words)  # "doe-led"
+        head = _hyphen_head(word.lower(), words) or _glued_head(word, words)  # "doe-led", "doe2019"
         return NAME_WITHHELD + word[head:] if head else match.group(0)
 
     return "".join(  # never inside a placeholder ("[name withheld]")

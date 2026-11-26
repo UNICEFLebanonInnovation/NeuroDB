@@ -357,6 +357,13 @@ ASKED = privacy.People(
         ("Fairplayer's survey?", f"{W}'s survey?"),
         ("What did Q. Fairplayer find?", f"What did {W} find?"),
         ("a study by Fairplayer?", f"a study by {W}?"),
+        # a surname with digits or "_" after it (a citation key, a file name)
+        ("what about vantrell2019 instead?", f"what about {W}2019 instead?"),
+        ("what about vantrell_survey instead?", f"what about {W}_survey instead?"),
+        ("what about Vantrell2019 instead?", f"what about {W}2019 instead?"),
+        ("what about Vantrell_2019 instead?", f"what about {W}_2019 instead?"),
+        ("what about vantrell2019's data?", f"what about {W}2019's data?"),
+        ("what about inclusion2019 instead?", "what about inclusion2019 instead?"),
         # nothing else changes
         ("e.g. girls' schooling in fake villages", "e.g. girls' schooling in fake villages"),
     ],
@@ -382,6 +389,7 @@ def test_any_case_withholds_what_a_question_kept_before_the_rule_holds():
         ("A Vantrell-based model; J. Vantrell-led work", f"A {W}-based model; {W}-led work"),
         ("The Smith-Fakejones-led survey", f"The {W}-led survey"),  # a hyphenated surname
         ("Vantrell’s, (Vantrell) and VANTRELL", f"{W}’s, ({W}) and {W}"),
+        ("The Vantrell2019 survey and Vantrell_2020 data", f"The {W}2019 survey and {W}_2020 data"),
         # kept: an organisation, a word, a capitalised second part
         (
             "A Fakeorg-led and child-led survey; Vantrell-Fakeword",
@@ -393,3 +401,33 @@ def test_a_documents_own_author_joined_by_a_hyphen_is_withheld(text, shown):
     own = frozenset({"vantrell", "smith-fakejones"})
     for clean in (privacy.for_ai, privacy.for_download):
         assert clean(text, privacy.NOBODY, own) == shown, clean.__name__
+
+
+# an e-mail address written out to dodge a filter: withheld whole, its local part (a name) with it
+SPELLED = (
+    "zayna.fakeharb at example.org",
+    "zayna.fakeharb(at)example.org",
+    "zayna.fakeharb[at]example.org",
+    "zayna.fakeharb{at}example.org",
+    "zayna.fakeharb -at- example.org",
+    "zfakeharb at mail.example.org",
+    "zayna.fakeharb [at] example [dot] org",
+    "zayna.fakeharb (at) example (dot) org",
+    "zayna.fakeharb {at} example {dot} org",
+    "zayna.fakeharb at example dot org",
+    "zayna.fakeharb at example [dot] org",
+)
+
+
+@pytest.mark.parametrize("address", SPELLED)
+@pytest.mark.django_db
+def test_an_address_written_out_is_withheld_whole(address):
+    question = f"out of school children in Akkar, contact {address}"
+    assert (
+        privacy.clean_question(question)
+        == f"out of school children in Akkar, contact {privacy.EMAIL_WITHHELD}"
+    )
+    text = f"For the data, write to {address} before June."
+    for clean in (privacy.for_download, privacy.for_ai):
+        assert clean(text) == f"For the data, write to {privacy.EMAIL_WITHHELD} before June.", clean.__name__
+    assert privacy.leftover(privacy.for_ai(text)) == []

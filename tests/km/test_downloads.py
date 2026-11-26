@@ -465,3 +465,14 @@ def test_the_downloads_under_an_answer_open_in_a_new_tab():
 
     html = render_to_string("km/_used.html", {"lines": [], "downloads": [{"label": "Excel", "url": "/x/"}]})
     assert '<a class="btn btn-outline-secondary btn-sm" href="/x/" target="_blank" rel="noopener' in html
+
+
+@pytest.mark.parametrize("dot", ["[dot]", "(dot)", "{dot}"])
+def test_an_address_written_out_with_a_bracketed_dot_is_never_downloaded(client_viewer, dot):
+    edits = {
+        ("findings", 2, "Finding Analysis"): f"For the data, write to zayna.fakeharb [at] example {dot} org."
+    }
+    factory.load(factory.workbook(documents=1, findings=2, edits=edits))
+    rows = {r["finding_id"]: r for r in _csv(_get(client_viewer, export="csv")[1])}
+    assert rows[factory.finding_id(1, 1)]["finding_analysis"] == "For the data, write to [email withheld]."
+    assert b"fakeharb" not in _xlsx_text(_get(client_viewer, export="xlsx")[1])
