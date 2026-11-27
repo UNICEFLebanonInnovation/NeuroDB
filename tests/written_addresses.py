@@ -291,12 +291,18 @@ NOT_ADDRESSES = {
     "ALP1 at school.it was closed for repairs.": "ALP1 at school.it was closed for repairs.",
     "Grade CE1 at Zahle.no books were delivered.": "Grade CE1 at Zahle.no books were delivered.",
     "LCRP2023 at akkar.no changes were needed.": "LCRP2023 at akkar.no changes were needed.",
-    "Students of KZ3 at school.it was hot.": "Students of KZ3 at school.it was hot.",
-    "Students of QX12 at Halba.No teachers came.": "Students of QX12 at Halba.No teachers came.",
-    # (regression sweep) a code of capitals and digits before a place and a sentence missing its space: the
-    # domain's words are a sentence's, not a domain's ("example")
-    "How many ZM2 at Halba.so what was found?": "How many ZM2 at Halba.so what was found?",
-    "How many ZM2 at saida.it was closed?": "How many ZM2 at saida.it was closed?",
+    # (converge round 3) an acronym after a determiner, or before a town of the KM Database's places, then a
+    # full stop, a space and a sentence that starts with "Info", "Net" or "NGO": no address
+    "We met the NGO at Bebnine. Info sessions followed.": "We met the NGO at Bebnine. Info sessions followed.",
+    "Kits were delivered by the NGO at Chtaura. Info sessions were held the next day.": "Kits were delivered by the NGO at Chtaura. Info sessions were held the next day.",
+    "The SMC at Bebnine. Info on dropout was shared.": "The SMC at Bebnine. Info on dropout was shared.",
+    "Training for the PTA at Minyara. NGO staff attended.": "Training for the PTA at Minyara. NGO staff attended.",
+    "The CSO at Minyara. Net enrolment is low.": "The CSO at Minyara. Net enrolment is low.",
+    "We met the NGO at Bebnine. Info: 40 kits were delivered.": "We met the NGO at Bebnine. Info: 40 kits were delivered.",
+    "The PTA at Kfarhabou. Net enrolment rose.": "The PTA at Kfarhabou. Net enrolment rose.",
+    # a page's word after "to the" is a page, not a mailbox: the link rule takes its domain
+    "How do I submit my report to the portal at example.org?": "How do I submit my report to the portal at [link withheld]?",
+    "Reply to the survey at example.org before June": "Reply to the survey at [link withheld] before June",
 }
 # a word that names no one before "at" and a domain of an ending the link rule does not know (".ngo", ".de",
 # ".jo"): the domain goes as a link in a record's text too, the words stay
@@ -529,6 +535,26 @@ TYPED_NOT_ADDRESSES = {
     # a place's name before "at" names no one
     "Compare Halba at akkar.ok": "Compare Halba at akkar.ok",
     "Compare Tyre at halba.It was higher?": "Compare Tyre at halba.It was higher?",
+    # (converge round 3) a place, a time of day or a word that names no one before a full stop, a space and a
+    # sentence that starts with "Org", "Lb", "Info" or "Net"; an acronym after a determiner or before a town
+    # of the KM Database's places; a page's word after "to the"
+    "Kits were delivered at Tyre. Lb of rice each.": "Kits were delivered at Tyre. Lb of rice each.",
+    "Volunteers worked at night. Org staff helped.": "Volunteers worked at night. Org staff helped.",
+    "Meeting held at Halba. Org chart shared with partners.": "Meeting held at Halba. Org chart shared with partners.",
+    "Monitoring at Halba. Net enrolment rose": "Monitoring at Halba. Net enrolment rose",
+    "What is the status at Halba. Info sessions were held?": "What is the status at Halba. Info sessions were held?",
+    "We met the NGO at Bebnine. Info sessions followed.": "We met the NGO at Bebnine. Info sessions followed.",
+    "Kits were delivered by the NGO at Chtaura. Info sessions were held the next day.": "Kits were delivered by the NGO at Chtaura. Info sessions were held the next day.",
+    "The SMC at Bebnine. Info on dropout was shared.": "The SMC at Bebnine. Info on dropout was shared.",
+    "Training for the PTA at Minyara. NGO staff attended.": "Training for the PTA at Minyara. NGO staff attended.",
+    "The CSO at Minyara. Net enrolment is low.": "The CSO at Minyara. Net enrolment is low.",
+    "We met the NGO at Bebnine. Info: 40 kits were delivered.": "We met the NGO at Bebnine. Info: 40 kits were delivered.",
+    "The PTA at Kfarhabou. Net enrolment rose.": "The PTA at Kfarhabou. Net enrolment rose.",
+    "We trained the Directorate at Bebnine. Info sessions followed.": "We trained the Directorate at Bebnine. Info sessions followed.",
+    "How do I submit my report to the portal at example.org?": "How do I submit my report to the portal at [link withheld]?",
+    "How do I return to the dashboard at example.org?": "How do I return to the dashboard at [link withheld]?",
+    "Reply to the survey at example.org before June": "Reply to the survey at [link withheld] before June",
+    "Teachers report to the platform at example.org every week.": "Teachers report to the platform at [link withheld] every week.",
 }
 # what a person types that holds an address, and how it is sent: a word after the domain that follows an
 # address ("before", "thanks"), the end of the text or a mark, or a word before the name that writes to one
@@ -700,6 +726,79 @@ TYPED_ADDRESSES = {
     # a code before a domain whose words no sentence writes: an address's name, whatever follows
     "How many KG2 at zaynafakemira.it were enrolled": "How many [email withheld] were enrolled",
     "How many G5 at example.it": "How many [email withheld]",
+    # (converge round 3) after a word that may name someone, ". Org", ". Lb", ". ORG", ". Com" end the domain
+    # of an address whose words name no place, whatever follows
+    "the focal point is zfakemira at example. Org and she knows": "the focal point is [email withheld] and she knows",
+    "Is zfakemira at example. Org on the list?": "Is [email withheld] on the list?",
+    "Rania at example. Lb for the files": "[email withheld] for the files",
+    "zfakemira at example. Org and rfakemira at example. Lb share the data": "[email withheld] and [email withheld] share the data",
+    "zfakemira at example. ORG and she knows": "[email withheld] and she knows",
+    "Rania at example. Com for the files": "[email withheld] for the files",
+    # a word the text writes to or names an address (a word that names no one too) before a dot, a space and
+    # any ending
+    "write to monitoring at example. net before June": "write to [email withheld] before June",
+    "Contact monitoring at example. de.": "Contact [email withheld].",
+    "cc status at example. info was the focal point": "cc [email withheld] was the focal point",
+    "Contact status at example. it thanks": "Contact [email withheld] thanks",
+    "The focal point is status at example. info": "The focal point is [email withheld]",
+    "Send the forms to stats at example. net": "Send the forms to [email withheld]",
+    "To: monitoring at example. Org": "To: [email withheld]",
+    "write to partners at example. net before June": "write to [email withheld] before June",
+    "To: registration at example. de": "To: [email withheld]",
+    "Please email registration at example. Org for the files": "Please email [email withheld] for the files",
+    "Is monitoring at example. net the right address?": "Is [email withheld] the right address?",
+    "ask zfakemira at example. Lb about the files": "ask [email withheld] about the files",
+    "Write to ZFAKEMIRA at Bebnine. Info": "Write to [email withheld]",
+    # more ways a text writes to a word or names it an address, and every item of a list after a header or a
+    # verb that sends
+    "Copy partners at example.org on the reply": "Copy [email withheld] on the reply",
+    "Questions go to monitoring at example.org": "Questions go to [email withheld]",
+    "Responses should go to cases at example.org": "Responses should go to [email withheld]",
+    "Get in touch with partners at example.org": "Get in touch with [email withheld]",
+    "Please add monitoring at example.org to the mailing list": "Please add [email withheld] to the mailing list",
+    "Remove partners at example.org from the mailing list": "Remove [email withheld] from the mailing list",
+    "Write partners at example.org for the files": "Write [email withheld] for the files",
+    "I wrote monitoring at example.org yesterday": "I wrote [email withheld] yesterday",
+    "Did you get a reply from partners at example.org?": "Did you get a reply from [email withheld]?",
+    "Has anyone heard back from status at example.org?": "Has anyone heard back from [email withheld]?",
+    "Is partners at example.org correct?": "Is [email withheld] correct?",
+    "Is stats at example.org still active?": "Is [email withheld] still active?",
+    "Who reads monitoring at example.org?": "Who reads [email withheld]?",
+    "Contact IT at example.org for access": "Contact [email withheld] for access",
+    "Please share the list with partners at example.org": "Please share the list with [email withheld]",
+    "The report came from partners at example.org": "The report came from [email withheld]",
+    "email the portal at example.org": "email the [email withheld]",
+    "To: monitoring at example.org, partners at example.org": "To: [email withheld], [email withheld]",
+    "Please email monitoring at example.org or partners at example.org": "Please email [email withheld] or [email withheld]",
+    "The focal points are monitoring at example.org and partners at example.org": "The focal points are [email withheld] and [email withheld]",
+    "Contacts: monitoring at example.org / partners at example.org": "Contacts: [email withheld] / [email withheld]",
+    "Mailboxes: monitoring at example.org, partners at example.org, status at example.org": "Mailboxes: [email withheld], [email withheld], [email withheld]",
+    "Write to zfakemira at example.org, monitoring at example.org or status at example.org": "Write to [email withheld], [email withheld] or [email withheld]",
+    "Contact Rania (rfakemira at example.org) or partners at example.org": "Contact Rania ([email withheld]) or [email withheld]",
+    "Focal points: Zayna (zfakemira at example.org), partners at example.org": "Focal points: Zayna ([email withheld]), [email withheld]",
+    "Contacts: monitoring@example.org, partners at example.org": "Contacts: [email withheld], [email withheld]",
+    "The addresses are info at example.org and partners at example.org": "The addresses are [email withheld] and [email withheld]",
+    "Contacts: monitoring at example dot org, partners at example dot org": "Contacts: [email withheld], [email withheld]",
+    # "point" is a dot spelled out whenever "at" is written as no sentence writes it
+    "zfakemira arobase health point org": "[email withheld]",
+    "rfakemira [at] health point org": "[email withheld]",
+    "rfakemira (at) training point org": "[email withheld]",
+    "zfakemira @ health point org": "[email withheld]",
+    "rania arobase education point gov point lb": "[email withheld]",
+    "Contact: zfakemira arobase training point org": "Contact: [email withheld]",
+    "zfakemira arobase health point org pour les questions": "[email withheld] pour les questions",
+    # (the name gate) "point" after a word that may name someone, before a sentence's word, is a dot too, but in
+    # "the point eg" after a plain word; a word that may name someone before a domain no sentence writes and any
+    # ending after a dot and a space, as 9fef985 read it, but a thing (an acronym after a determiner or before a
+    # place, a capitalised word after a determiner) or a place written short ("Mt. Lebanon")
+    "zfakemira at health point org": "[email withheld]",
+    "zayna.fakemira at info point example point org": "[email withheld]",
+    "zfakemira at the point example point org": "[email withheld]",
+    "Rania at example. Info replied": "[email withheld] replied",
+    "Rania at Bebnine. Info sessions followed.": "[email withheld] sessions followed.",
+    "did zfakemira at example. net reply?": "did [email withheld] reply?",
+    "zfakemira at example. net knows the answer": "[email withheld] knows the answer",
+    "Teacher: rania-fakemira at example. it will send it": "Teacher: [email withheld] will send it",
 }
 # what a record's or a document's text holds that is an address, and how it is sent: a name holding a digit
 # anywhere, letters then digits in capitals, "AT" in capitals before a word of two letters, an address's name
@@ -806,6 +905,28 @@ RECORD_ADDRESSES = {
     "Reply-to: info at example.org": "Reply-to: [email withheld]",
     "Is info at example.org the right address?": "Is [email withheld] the right address?",
     "Rania at example.it has the files": "[email withheld] has the files",
+    # (converge round 3) a word the text writes to or names an address before a dot, a space and any ending;
+    # every item of a list after a header; "point" after an "at" no sentence writes
+    "Please email zfakemira at example. net for the files": "Please email [email withheld] for the files",
+    "write to zfakemira at example. de before June": "write to [email withheld] before June",
+    "Contact zfakemira at example. info.": "Contact [email withheld].",
+    "Please email Zfakemira at example. net for the files": "Please email [email withheld] for the files",
+    "write to monitoring at example. net before June": "write to [email withheld] before June",
+    "Please email registration at example. Org for the files": "Please email [email withheld] for the files",
+    "To: registration at example. de": "To: [email withheld]",
+    "To: monitoring at example.org, partners at example.org": "To: [email withheld], [email withheld]",
+    "Copy partners at example.org on the reply": "Copy [email withheld] on the reply",
+    "Contact IT at example.org for access": "Contact [email withheld] for access",
+    "zfakemira arobase health point org": "[email withheld]",
+    # (converge round 3, the name gate) letters in capitals then digits, as initials and a digit write an
+    # address's name, before a sentence missing its space: an address's name, as the pushed rules read it
+    "Students of KZ3 at school.it was hot.": "Students of [email withheld] was hot.",
+    "Students of QX12 at Halba.No teachers came.": "Students of [email withheld] teachers came.",
+    "How many ZM2 at Halba.so what was found?": "How many [email withheld] what was found?",
+    "How many ZM2 at saida.it was closed?": "How many [email withheld] was closed?",
+    "zfakemira at health point org": "[email withheld]",
+    "zayna.fakemira at info point example point org": "[email withheld]",
+    "zfakemira at the point example point org": "[email withheld]",
 }
 # what a person types with an address's name before a link's scheme (a name's shape, or "at" written as no
 # sentence writes it): no e-mail address, but its name goes as one would (what is sent and kept is the same on

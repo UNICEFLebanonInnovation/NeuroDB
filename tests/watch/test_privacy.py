@@ -731,3 +731,46 @@ def test_what_the_pushed_rules_withheld_stays_withheld_round_two():
         people.without_addresses("Who wrote the profile at example.org?")
         == "Who wrote the profile at [link withheld]?"
     )
+
+
+def test_what_the_pushed_rules_withheld_stays_withheld_round_three():
+    """The third convergence round: an item after a phone number and a dash is an address's name; a name
+    before ". Org" written in a sentence goes with the domain, a place before it stays; a sentence that only
+    writes to a school at a town keeps its words."""
+    assert (
+        people.without_addresses("Phone 01 234 567 - monitoring at example.org")
+        == "Phone 01 234 567 - [email withheld]"
+    )
+    assert redact.text("Phone 01 234 567 - partners at example.org", 500, frozenset()) == (
+        "Phone 01 234 567 - [email withheld]"
+    )
+    assert people.without_addresses("Contact: Zayna Fakemira, zfakemira at example. Org for the files.") == (
+        "Contact: Zayna Fakemira, [email withheld] for the files."
+    )
+    for text in (
+        "Staff were present at Halba. Org chart updated.",
+        "We contacted the school at Bebnine. It was closed.",
+        "Contact Rami at Halba. Net enrolment is low.",
+        "Send the kits to the school at Halba. Info sessions followed.",
+    ):
+        assert people.without_addresses(text) == text, text
+        assert redact.text(text, 500, frozenset()) == text, text
+
+
+def test_a_page_address_that_names_a_person_after_a_title_is_never_sent():
+    """The name gate: a page's address whose query writes a name after a title ("Ms Rania met the principal",
+    "Fr Elias attended") is dropped by the Help assistant and by Monitoring insights, as one holding an
+    address is; one without a name is kept."""
+    from neurodb.fmm import privacy as fmm_privacy
+    from neurodb.help import assistant as help_assistant
+
+    for text in (
+        "Ms Rania met the principal at noon. Org chart updated.",
+        "Attendance was low at first. Fr Elias attended.",
+    ):
+        assert people.titled_name(text), text
+        assert help_assistant.page_path(f"/fmm/?q={text}") == "", text
+        assert not fmm_privacy._safe_url(f"/fmm/?q={text.replace(' ', '+')}"), text
+    assert not people.titled_name("French Fr classes")
+    assert help_assistant.page_path("/fmm/?q=dropout in Akkar") == "/fmm/?q=dropout in Akkar"
+    assert fmm_privacy._safe_url("/fmm/?q=dropout+in+Akkar")

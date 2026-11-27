@@ -1020,8 +1020,8 @@ def test_a_town_written_as_a_source_is_withheld_even_with_no_author_known():
 def test_a_km_download_loses_a_codes_web_address_as_a_link():
     """A code before "at" names no one, but its web address goes as a link in a download too (no link rule
     reads it after), as the AI reads it; before a domain whose words no sentence writes it is an address's
-    name, as the pushed rules read it ("F09 at Example.Org"); a code before a place and a sentence missing its
-    space stays."""
+    name, as the pushed rules read it ("F09 at Example.Org"); letters in capitals then digits before a sentence
+    missing its space are an address's name, as initials and a digit write one ("KZ3 at school.it")."""
     for text, sent in {
         "F09 at Example.Org": "[email withheld]",
         "CE1 at Tyre.Net 2023": "CE1 at [link withheld] 2023",
@@ -1030,7 +1030,7 @@ def test_a_km_download_loses_a_codes_web_address_as_a_link():
         assert privacy.for_ai(text) == sent, text
     assert (
         privacy.for_download("Students of KZ3 at school.it was hot.")
-        == "Students of KZ3 at school.it was hot."
+        == "Students of [email withheld] was hot."
     )
 
 

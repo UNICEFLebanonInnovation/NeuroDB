@@ -223,12 +223,15 @@ def clean(text: str, limit: int, names: frozenset[str] | None = None) -> str:
 
 def page_path(path: str) -> str:
     """The page's address (its path) as it is sent and kept: "" ("unknown address") when it holds an e-mail
-    address, written out too, as the browser shows it ("%20" read as a space)."""
+    address, written out too, as the browser shows it ("%20" read as a space), or a person's name after a
+    title ("Ms Rania met the principal")."""
     from urllib.parse import unquote
 
     from neurodb.watch import people
 
     shown = people.visible(unquote(path or ""))
+    if people.titled_name(shown):
+        return ""
     return "" if people.without_addresses(shown) != shown.translate(people.LOOKALIKES) else path
 
 

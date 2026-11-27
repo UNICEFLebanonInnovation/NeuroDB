@@ -407,10 +407,12 @@ come from.
     ".ngo" and ".invalid"), "x at example. net before June", "x@example. info", "x at example .org", "x @
     example dot org", "x [@] example [dot] org", "x at example dot invalid", "x at example[.]invalid", "x at
     example<.>org", "x arobase example.org", "x arobase example point org" (the French "point" for the dot,
-    before a domain's ending, after a word no sentence writes: "the data point de facto", "at this point
-    co-ordination", "at the point eg the gate", "at baseline point net of dropouts" stay), "x 'at'
-    example.org", "x 'at' example 'dot'
-    org", "x *at* example *dot* org", "x /at/ example /dot/ org", "x at-sign example.org", "x at at
+    before a domain's ending, always after "arobase", "@", "[at]" or "(at)" and after a word that may name
+    someone, "x at health point org", "x at the point example point org", "x arobase sante point gov point
+    lb"; after a word that names no one, or a plain word before one "point" after a word of a sentence's
+    grammar, it is a sentence's: "the data point de facto", "at this point co-ordination", "We arrived at the
+    point eg the gate", "at baseline point net of dropouts" stay), "x 'at' example.org", "x 'at' example
+    'dot' org", "x *at* example *dot* org", "x /at/ example /dot/ org", "x at-sign example.org", "x at at
     example.org", "x at example period org", "x(a)example.org", "x-at-example-dot-org",
     "x-at-example-dot-invalid" and "x_at_example_dot_org" lose the whole address, the name before "at" too,
     and so do letters that look like an address's (a Cyrillic "а", a Latin "ɑ", a full-width "ａｔ" or "．", a
@@ -425,7 +427,17 @@ come from.
     goes whole; so is any word that names no one when the text writes to it or calls it an address
     (`people._keeps_named`: "cc partners at", "From: monitoring at", "Email address: info at", "The address
     is data at", "the focal point is monitoring at", "Is info at example.org the right address?", "Questions?
-    monitoring at", "email the office at", an item after a phone number in a list of contacts) and, in what
+    monitoring at", "email the office at", an item after a phone number and a comma, a slash or a dash in a
+    list of contacts, "Copy partners at", "Please add monitoring at ... to the mailing list", "Remove ...
+    from the list", "Write partners at", "I wrote monitoring at", "Get in touch with partners at", "heard
+    back from status at", "a reply from partners at", "came from partners at", "share the list with partners
+    at", "Questions go to monitoring at", "Who reads monitoring at", "Is stats at example.org still active?",
+    "The focal points are", "Mailboxes:", "Contact IT at", "Contact it at"; every item of a list after such a
+    header or verb: "To: monitoring at example.org, partners at example.org and status at example.org",
+    "Contact Rania (rfakemira at example.org) or partners at example.org"; any ending after a dot and a space
+    counts then too, "Contact monitoring at example. de.", "To: registration at example. Org"; never a page's
+    word after "to the": "How do I submit my report to the portal at [link withheld]?", "Reply to the survey
+    at [link withheld]", while "email the portal at" is a mailbox) and, in what
     a person types, before a domain whose words no sentence writes, a measure's, a report's or a page's word
     that opens the text or a sentence, or that no determiner makes a thing before what follows an address
     ("status at example.online", "dropout at example.plus before June"); a domain whose words no sentence
@@ -546,14 +558,28 @@ come from.
     (`people.SENTENCE_NOUNS`; "Org" may start a sentence too): "Volunteers worked at night. Net enrolment
     rose", "Kits were delivered at Akkar. Org chart updated", "We started at dawn. Info: 40 kits were
     delivered" stay; "is Zfakemira at example. ORG correct?" and "x2 at example. fr sent the report" do not.
+    In what a person types, a word that may name someone before a domain whose words no sentence writes ends
+    an address with any ending after a dot and a space ("Rania at example. Info replied", "did zfakemira at
+    example. net reply?", "Rania at Bebnine. Info sessions followed"), but a thing does only before what
+    follows an address or when the text writes to it: an acronym after a determiner or before a town of the
+    KM Database's places (`km.places`, which the KM app registers in `people.PLACE_SOURCES` when it starts,
+    so that no other module imports it), a capitalised word after a determiner, a word before a place's first
+    word written short ("We met the NGO at Bebnine. Info sessions followed", "The PTA at Kfarhabou. Net
+    enrolment rose", "We trained the Directorate at Bebnine. Info sessions followed", "Staff were present at
+    Mt. Lebanon. Org chart updated" stay; "Write to ZFAKEMIRA at Bebnine. Info" does not). ". Org", ". ORG",
+    ". Lb", ". LB" and ". Com" end the domain after a word that may name someone whatever follows, before a
+    domain whose words name no place ("Rania at example. Lb for the files", "the focal point is zfakemira at
+    example. Org and she knows"; "Kits were delivered at Tyre. Lb of rice each" stays).
     In a record's text, a plain word before a domain whose words no sentence writes, that no link rule takes,
     is an address's name ("Rania at example.it has the files").
   - In a record's text, a name in capitals and "AT", or of capitals and digits, before a domain whose words
     before its ending no sentence writes (`people._foreign`: not a common word, a place or a code) is an
     address's name whatever the ending's case and whatever follows it ("X AT EXAMPLE.IT HAS THE DATA", "X2
-    at example.be has the data", "X AT example.Online"); "KZ3 at school.it was hot", "QX12 at Halba.No
-    teachers came", "ZM2 at saida.it was closed" stay. A school, fiscal or academic year's code ("SY2024",
-    "FY2023", "PD2023", "Mar2024") is a code, no name.
+    at example.be has the data", "X AT example.Online"). Before a sentence missing its space, two letters or
+    more in capitals then digits are an address's name as initials and a digit write one ("KZ3 at
+    school.it was hot", "QX12 at Halba.No teachers came", "ZM2 at saida.it was closed" go as addresses); a
+    grade's or a programme's code ("CE2", "BT2", "BLN2", "ALP1") and a school, fiscal or academic year's code
+    ("SY2024", "FY2023", "PD2023", "Mar2024") is a code, no name.
   - *The search words of a Monitoring insights filter* lose an address written in them, and a web address
     written after a word and "at" that the typed rule withholds ("Contact us at [link withheld]",
     `people.withheld_typed`), by the typed rule, as soon as the filter is read (`fmm.scope.searched`, before

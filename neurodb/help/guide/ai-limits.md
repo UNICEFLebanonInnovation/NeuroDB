@@ -68,7 +68,10 @@ address.
   country's (".sy", ".tv"), a path or a port: "for more info at [link withheld]"; a role's mailbox written to
   ("write to info at ...", "send it to data at ...") is part of the address and goes whole, and so is any word
   you write to or call an address ("cc partners at ...", "From: monitoring at ...", "Is info at ... the right
-  address?"). A site's address whose words no sentence writes goes as a link whatever its ending ("How many
+  address?", "Copy partners at ... on the reply", "Questions go to monitoring at ...", "Contact IT at ..."),
+  every address of a list after "To:", "Contacts:" or "Please email", and the word before any ending after a
+  dot and a space then too ("Contact monitoring at example. de."); a page after "to the" stays a page ("submit
+  my report to the portal at [link withheld]"). A site's address whose words no sentence writes goes as a link whatever its ending ("How many
   visits at [link withheld] were done"), and a code before it goes with it ("How many [email withheld]"); what
   is glued after a link goes too ("more info at [link withheld]"), and so does what
   is glued after an address ("x at example.co.It", "x at example dot gov.lb"). A full link (one that starts
@@ -78,7 +81,9 @@ address.
   one that is also a word, in any case, goes like any other after a word that may name someone, whatever
   follows it ("x at example.today", "x at example.school", "x at example.ok", "x at example.show the files",
   "x at EXAMPLE.NO", "x at Example.Online", "x at example.now"); "point" in French for the dot too ("x
-  arobase example point org"; "at this point co-ordination" stays). The word before "at" decides: after a word
+  arobase example point org", "x arobase health point org", "x at health point org"; "at this point
+  co-ordination" stays). A page's address (in the Help assistant and Monitoring insights) that writes a
+  person's name after a title ("Ms ...", "Fr ...") is not sent either. The word before "at" decides: after a word
   that names no one (also what a report says happened there,
   "reported", "happened", "visited", "closed", "took place"..., and one of Lebanon's governorates, districts
   and main towns), a sentence missing its space after a place stays ("how many schools were visited at
