@@ -200,13 +200,17 @@ download the findings it read.
   reference lists, people quoted, people named with their job) are written "[name withheld]". A town's name
   that is also a family name ("Saida", "Naameh"), or a place's name made only of words a name has ("Saad
   Nayel", "Tal Abbas", "Bar Elias"), is kept as a place only before a year after "in", "for" or "from" ("in
-  Saida 2023", "numbers for Sayda, 2024", "in Tyre, Qana and Houla 2024"), and never when it is the surname of
-  one of the KM Database's authors; written as a citation ("Naameh (2021)", "Naameh et al.", "Saad Nayel et
+  Saida 2023", "numbers for Sayda, 2024", "in Tyre, Qana and Houla 2024", "What about Saida and Tyre 2023?"),
+  and never when it is the surname of one of the KM Database's authors; written as a citation ("Naameh (2021)", "Naameh et al.", "Saad Nayel et
   al.", "Jabal Mohsen et al.", "from Akar & Naameh 2020", "As reported in Naameh 2021", "Similar results were
   found in Naameh 2021", "Akar and Naameh 2020 found", "Building on the work in Akar 2020", "Figures from
   Kousba 2019", "(for Naameh, 2021)", "Table adapted from Naameh 2021", "According to Naameh 2021", "Sources:
-  Akar 2018; Naameh 2021", "in Naameh
-  2021a", "in Naameh 2021, p. 12") it is a name. So is a person quoted with an age ("“…,” said Fakename, 14",
+  Akar 2018; Naameh 2021", "This was examined in Naameh 2021", "See the chapter in Hasroun 2021", "This was
+  collected in Sayda 2021", "Families from Houla 2021 adds that ...", a list with a year after each name "Rates
+  in Akar 2016, Naameh 2018 and Kousba 2019 rose", "in Naameh
+  2021a", "in Naameh 2021, p. 12") it is a name. "Show", "Compare" or "In" before two places stays ("Show
+  Beirut and Tyre 2023"), and so does an exam, a school level, a subject or a tool after "In", "Source:" or
+  "Data:" ("In Brevet 2023", "Source: Fieldwork 2023", "Data: Interviews 2023"). So is a person quoted with an age ("“…,” said Fakename, 14",
   "In an interview, Fakename, 14,") and a name before a year where the word is no event or topic ("Storm 2021
   (Lebanon)"; "Cholera 2022 (Bebnine)" stays). An e-mail address is taken out whole, also when it is written
   out with "at" and "dot" in words, with dashes or in brackets ("x [ at ] example [ dot ] org", "x -at-

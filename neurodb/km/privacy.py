@@ -295,7 +295,22 @@ def kept(name: str) -> bool:
     return _covered(found)
 
 
-_EVERY = MONTHS | SEASONS | TIME_WORDS | PLACE_WORDS | watch_people.COMMON_WORDS | STOP | CONNECTIVES
+# a request's words, which open a question before names ("Show Beirut and Tyre 2023", "Compare Akkar and
+# Tripoli 2023"): never a first name before a name withheld ("Show [name withheld] and Tyre 2023")
+REQUEST_WORDS = frozenset(
+    "show compare comparing list give tell display plot rank sort what which where when how versus "
+    "see".split()
+)
+_EVERY = (
+    MONTHS
+    | SEASONS
+    | TIME_WORDS
+    | PLACE_WORDS
+    | watch_people.COMMON_WORDS
+    | STOP
+    | CONNECTIVES
+    | REQUEST_WORDS
+)
 
 
 def _covered(found: list[str]) -> bool:
@@ -350,18 +365,40 @@ _CITED_BEFORE = re.compile(
     r"|summari[sz]ed|reviewed|published|argued|highlighted|outlined|findings|evidence|research|found|mentioned"
     r"|indicated|explained|observed|suggested|seen|detailed|demonstrated|estimated|confirmed|adapted|taken"
     r"|drawn|derived|obtained|sourced|extracted|reproduced|results|data|work|works|study|studies|review"
-    r"|reviews|paper|papers|article|articles|literature|appears?|appeared|figures|estimates|statistics|given)"
+    r"|reviews|paper|papers|article|articles|literature|appears?|appeared|figures|estimates|statistics|given"
+    # a scholar's verbs ("This was examined in Naameh 2021", "Similar patterns were analysed in Kousba 2019")
+    r"|examined|analy[sz]ed|explored|assessed|investigated|addressed|covered|identified|evaluated|considered"
+    r"|illustrated|emphasi[sz]ed|stressed|underlined|acknowledged|concluded|claimed|revealed|compiled"
+    r"|referenced|echoed|mirrored|corroborated|replicated|quantified|modell?ed|compared|critiqued|questioned"
+    r"|debated|defined|characteri[sz]ed|framed|tested|validated|introduced"
+    # and a publication's parts ("See the chapter in Hasroun 2021", "The framework in Akar 2020")
+    r"|analysis|analyses|chapter|chapters|table|tables|figure|annex|box|section|discussion|argument"
+    r"|framework|model|method|methods|approach|definition|report|reports|survey|surveys|assessment"
+    r"|evaluation|account|accounts|overview|summary|synthesis|case|example|examples)"
     r"|\b(?i:e\.g|i\.e)\.)[\s,]*$"
     r"|\b(?i:as)\s+[\w'’]+[\s,]*$"  # "as" within the two words before it ("As also found in")
+    # a publication's numbered part ("Table 2 in Naameh 2021", "Figure 3 in", "Annex 1 in")
+    r"|\b(?i:table|figure|fig\.|annex|appendix|chapter|section|box)\s+[\dIVXivx]+[a-z]?[\s,]*$"
+    # a verb in the passive before it ("This was collected in Sayda 2021", "The issue is captured in Qana
+    # 2021"), but one that says what happened at a place ("Children were enrolled in Saida 2023")
+    r"|\b(?i:is|was|are|were|been|being|be)\s+(?:[a-z]+ly\s+)?(?!(?i:enrolled|registered|located|based|held"
+    r"|born|raised|displaced|settled|hosted|stationed|situated|closed|opened|built|damaged|destroyed|housed"
+    r"|employed|married|killed|injured|affected|recruited|trained|vaccinated|treated)\b)[a-z]+ed[\s,]*$"
 )
 # a source's verb after the year ("Akar and Naameh 2020 found", "Girls in Naameh 2021 reported", "Jabal Mohsen
 # (2020) suggested"): the names before it are a citation's, never a place's ("Numbers for Sayda, 2024 show a
 # rise" is a place's)
 _CITED_AFTER = re.compile(
-    rf"(?:{ET_AL})?,?\s+\(?\s*(?:19|20)\d\d[a-z]?\s*\)?,?\s+(?i:found|finds|find|reported|reports|suggested"
+    rf"(?:{ET_AL})?,?\s+\(?\s*(?:19|20)\d\d[a-z]?\s*\)?(?:,?\s+(?i:found|finds|find|reported|reports|suggested"
     r"|suggests|suggest|argued|argues|argue|noted|notes|concluded|concludes|estimated|documented|documents"
     r"|observed|observes|showed|highlighted|highlights|indicated|indicates|demonstrated|demonstrates|stated"
-    r"|states|recommended|recommends|described|describes)\b"
+    r"|states|recommended|recommends|described|describes|revealed|reveals|identified|identifies|confirmed"
+    r"|confirms|claimed|claims|explained|explains|discussed|discusses|examined|examines|analy[sz]ed|wrote"
+    r"|writes|mentioned|mentions|proposed|proposes|calculated|attributed|attributes|linked|links|emphasi[sz]ed"
+    r"|stressed|warned|predicted|projected)\b"
+    # any verb before "that" ("Girls in Naameh 2021 measured that most worked", "Families from Houla 2021
+    # adds that fees rose"), or "which" and a verb after a comma ("in Sayda 2021, which found high dropout")
+    r"|\s+[a-z]+\s+that\b|,\s+(?:which|who)\s+(?:also\s+)?[a-z]+(?:ed|s)\b)"
 )
 # a list that goes on before a name, after an earlier name and year ("reported for Naameh, 2021 and for Akar,
 # 2020"): the earlier one's words decide for it
@@ -440,6 +477,7 @@ def _names(
     places: re.Pattern | None = None,
     surnames: frozenset[str] = frozenset(),
     source: bool = False,
+    words: frozenset[str] = frozenset(),
 ) -> list[tuple[int, int]]:
     """The spans of the names of a C1-C8 match that are not kept, nor a place written as one where the
     match's shape is a place's before a bare year (``places``, the words that write one there: C4, C5 and
@@ -449,7 +487,8 @@ def _names(
     (2021)", a parenthesis's item, a year with a letter or a page after it: "in Naameh 2021a", "in Naameh
     2021, p. 12") is a person's, whatever word comes before it; where a source's form names it (``source``:
     "et al.", "(2019) reported"), a place's name of several words is kept only as :func:`_kept_as_source`
-    says ("Jabal Mohsen et al." goes)."""
+    says ("Jabal Mohsen et al." goes); a name made only of ``words`` is kept too (:data:`NOT_SOURCES`, after a
+    sentence's "In" and a source's words: "In Brevet 2023", "Source: Fieldwork 2023")."""
     spans = []
     found = match.groupdict()
     names = [group for group in ("a", "b") if found.get(group)]
@@ -464,12 +503,32 @@ def _names(
     )
     for group in names:
         name = found[group]
-        if (_kept_as_source(name) if source else kept(name)) or (
-            listed and _as_place(match.string, match.start(group), name, places)
-        ):
+        if (_kept_as_source(name) if source else kept(name)) or (words and _only(name, words)):
+            continue
+        if listed and _as_place(match.string, match.start(group), name, places):
             continue
         spans.append(match.span(group))
     return spans
+
+
+# the words a sentence's "In", a source's words ("Source:", "According to", "Data:", "Per") or a possessive
+# before a year write that are no person's: an exam, a school's level or term, a subject, a way of collecting
+# data, a tool, a sector, an area, a time of day or an event ("In Brevet 2023, how many passed?", "Source:
+# Fieldwork 2023.", "Data: ActivityInfo 2023.", "Kobo's 2023 data"); never a holiday, a weekday or a month
+# that is a family name too ("In Ramadan 2023", "Eid et al.": those stay withheld)
+NOT_SOURCES = frozenset(
+    "fieldwork interviews interview kindergarten preschool activityinfo kobo kobotoolbox brevet "
+    "baccalaureate bacc midterm midterms finals semester term terms cycle cycles primary intermediate "
+    "secondary shelter livelihoods transport district region area city village physics biology chemistry "
+    "geography history civics economics morning afternoon evening shift shifts partner partners pandemic "
+    "lockdown lockdowns floods flooding earthquake explosion crisis outbreak cholera covid".split()
+)
+
+
+def _only(name: str, words: frozenset[str]) -> bool:
+    """Whether every word of ``name`` is one of ``words`` (folded, a possessive left out)."""
+    found = [fold(_POSSESSIVE.sub("", w)) for w in _WORDS.findall(name)]
+    return bool(found) and all(w in words for w in found)
 
 
 def _withhold(text: str, spans: list[tuple[int, int]]) -> str:
@@ -478,9 +537,10 @@ def _withhold(text: str, spans: list[tuple[int, int]]) -> str:
     return text
 
 
-def _cited(item: str, cited: set[str]) -> str | None:
-    """An item (or a part of one) that starts with names and a year (C2_START), its names not kept withheld,
-    and every other name before a year in it (C2_MORE); None when it does not start so."""
+def _cited(item: str, cited: set[str], words: frozenset[str] = frozenset()) -> str | None:
+    """An item (or a part of one) that starts with names and a year (C2_START), its names not kept (nor made
+    only of ``words``) withheld, and every other name before a year in it (C2_MORE); None when it does not
+    start so."""
     found = C2_START.match(item)
     if found is None:
         return None
@@ -488,44 +548,146 @@ def _cited(item: str, cited: set[str]) -> str | None:
     spans = {
         (start + m.start(), start + m.end())
         for m in NAME_RE.finditer(found.group("names"))
-        if not kept(m.group())
+        if not kept(m.group()) and not (words and _only(m.group(), words))
     }
-    spans |= {span for m in C2_MORE.finditer(item, found.end()) for span in _names(m)}
+    spans |= {span for m in C2_MORE.finditer(item, found.end()) for span in _names(m, words=words)}
     cited.update(item[a:b] for a, b in spans)
     return _withhold(item, sorted(spans))
 
 
-def _item(item: str, cited: set[str]) -> str:
-    """One item of a parenthesis (between ";"), its citations' names withheld: "Doe, 2019" (C2_ITEM), names
-    and a year at its start, or at the start of one of its parts between commas."""
+def _item(item: str, cited: set[str], words: frozenset[str] = frozenset()) -> str:
+    """One item of a parenthesis (between ";") or of a list of sources, its citations' names withheld (but a
+    name made only of ``words``): "Doe, 2019" (C2_ITEM), names and a year at its start, or at the start of one
+    of its parts between commas."""
     found = C2_ITEM.match(item)
     if found:
-        spans = _names(found)
+        spans = _names(found, words=words)
         cited.update(item[a:b] for a, b in spans)
         return _withhold(item, spans)
     if len(item) > ITEM_MAX or not _HAS_YEAR.search(item):
         return item
-    withheld = _cited(item, cited)
+    withheld = _cited(item, cited, words)
     if withheld is not None:
         return withheld
     if "," not in item:
         return item
     parts = item.split(",")
-    return ",".join(_cited(part, cited) or part if _HAS_YEAR.search(part) else part for part in parts)
+    return ",".join(_cited(part, cited, words) or part if _HAS_YEAR.search(part) else part for part in parts)
+
+
+# the words a request or a sentence opens with before a pair of names, never a name's ("Show Beirut and Tyre
+# 2023", "Compare Akkar and Tripoli 2023", "In Chtoura and Zahle 2023, fees rose.")
+_PAIR_LEADS = REQUEST_WORDS | frozenset(
+    "compared both between in for from across about see vs visits visit".split()
+)
+
+
+def _trimmed_pair(match: re.Match) -> re.Match:
+    """C5's match without the words its first name opens with that are no person's (:data:`_PAIR_LEADS`, a
+    connective, a common word: "Show Beirut" → "Beirut"), read again from there."""
+    words = list(_WORDS.finditer(match.group("a")))
+    skip = 0
+    while skip < len(words) - 1:
+        word = fold(words[skip].group())
+        if word not in _PAIR_LEADS and word not in CONNECTIVES and word not in STOP:
+            break
+        skip += 1
+    if not skip:
+        return match
+    again = C5.match(match.string, match.start("a") + words[skip].start())
+    return again if again and again.end() == match.end() else match
+
+
+def _everywhere(name: str) -> bool:
+    """Whether ``name`` is a place kept wherever it is written (each word a word of :data:`PLACE_WORDS`)."""
+    found = _place_words(name)
+    return bool(found) and all(w in PLACE_WORDS for w in found)
 
 
 def _pair(match: re.Match, surnames: frozenset[str] = frozenset()) -> list[tuple[int, int]]:
     """C5's two names, each judged on its own (:func:`_names`: "from Tyre & Doering 2020" withholds
-    "Doering", "from Akar & Doering 2020" both, "in Tyre, Qana and Houla 2024" none); none when one is kept as
-    no place ("Fakeword and Child Development Survey 2023" is a title). "&" joins a citation's authors, never
-    places: only a place kept wherever it is written stays there ("Data from Tyre & Doering 2020" keeps
-    "Tyre", "Data from Akar & Naameh 2020" withholds both)."""
-    for name in (match.group("a"), match.group("b")):
+    "Doering", "from Akar & Doering 2020" both, "in Tyre, Qana and Houla 2024" none), without the words the
+    first opens with that are no person's (:func:`_trimmed_pair`: "Show Beirut and Tyre 2023"); none when one
+    is kept as no place ("Fakeword and Child Development Survey 2023" is a title). "&" joins a citation's
+    authors, never places: only a place kept wherever it is written stays there ("Data from Tyre & Doering
+    2020" keeps "Tyre", "Data from Akar & Naameh 2020" withholds both). With "and", a place kept wherever it
+    is written makes the pair one of places: a town's other spelling or a place's name of several words on the
+    other side stays ("What about Saida and Tyre 2023?", "Visits to Majdal Anjar and Tyre 2023"), unless a
+    citation's word comes before it or a source's verb after the year ("Akar and Tyre 2020 found"), or it is
+    one of the KM Database's surnames."""
+    match = _trimmed_pair(match)
+    a, b = match.group("a"), match.group("b")
+    for name in (a, b):
         if kept(name) and not _a_place(_place_words(name)):
             return []
     if "&" in match.string[match.end("a") : match.start("b")]:
         return _names(match)
-    return _names(match, _AS_PLACE, surnames)
+    if (
+        (_everywhere(a) or _everywhere(b))
+        and all(_a_place(_place_words(name)) for name in (a, b))
+        and all(surnames.isdisjoint(_place_words(name)) for name in (a, b))
+        and not _CITED_YEAR.match(match.string, match.end())
+        and not _CITED_AFTER.match(match.string, match.end())
+        and not _cited_before(match.string, match.start("a"))
+    ):
+        return []
+    # a source's word on one side ("Show Midterm and Tyre 2023") stays, the other is judged on its own; not in
+    # a citation's form ("Brevet and Zelwick 2020 found": both are authors)
+    cited = (
+        _CITED_YEAR.match(match.string, match.end())
+        or _CITED_AFTER.match(match.string, match.end())
+        or _cited_before(match.string, match.start("a"))
+    )
+    return _names(match, _AS_PLACE, surnames, words=frozenset() if cited else NOT_SOURCES)
+
+
+def _cited_before(text: str, start: int) -> bool:
+    """Whether a citation's words (:data:`_CITED_BEFORE`) come right before ``start`` of ``text``, or before
+    the word that writes a place there ("As reported in Saida and Tyre 2023")."""
+    window = text[max(0, start - 120) : start]
+    found = list(_AS_PLACE.finditer(window))
+    if found and not window[found[-1].end() :].strip():
+        window = window[: found[-1].start() + 1]
+    return bool(_CITED_BEFORE.search(window))
+
+
+# a list of names with a year after each, after a word that cites or writes a place ("Rates in Akar 2016,
+# Naameh 2018 and Kousba 2019 rose", "This mirrors the rates in Akar 2016 and Kousba 2019")
+_YEAR_LIST = re.compile(
+    rf"(?<![\w'’\-])(?:in|for|by|from|than|with|across|among|pooling|{_CITING}|In)\s+"
+    rf"(?P<list>{NAME},?\s+{YEAR}(?:\s*,\s*(?:in\s+)?{NAME},?\s+{YEAR})*\s*,?\s+(?:and|or|&)\s+(?:in\s+)?"
+    rf"{NAME},?\s+{YEAR})\b"
+)
+_LIST_ITEM = re.compile(rf"(?<![\w'’\-])(?P<a>{NAME}),?\s+{YEAR}")
+
+
+def _year_lists(text: str, surnames: frozenset[str] = frozenset()) -> list[tuple[int, int]]:
+    """The names of a list with a year after each (:data:`_YEAR_LIST`): a list of sources, every name not kept
+    withheld; a name stays as a place only when it is a place and every other one is a place kept wherever it
+    is written, with no citation's words before the list nor a source's verb after it ("Any data on child
+    marriage in Saida 2023 and Tyre 2024?" keeps "Saida"), and it is none of the KM Database's surnames."""
+    spans = []
+    for found in _YEAR_LIST.finditer(text):
+        items = list(_LIST_ITEM.finditer(text, found.start("list"), found.end("list")))
+        if len(items) < 2:
+            continue
+        cited = _cited_before(text, found.start("list")) or bool(
+            _CITED_AFTER.match(text, items[-1].start("a") + len(items[-1].group("a")))
+        )
+        for i, item in enumerate(items):
+            name = item.group("a")
+            if kept(name):
+                continue
+            others = [other.group("a") for j, other in enumerate(items) if j != i]
+            if (
+                not cited
+                and _a_place(_place_words(name))
+                and surnames.isdisjoint(_place_words(name))
+                and all(_everywhere(other) for other in others)
+            ):
+                continue
+            spans.append(item.span("a"))
+    return spans
 
 
 def _citations(text: str, surnames: frozenset[str] = frozenset()) -> str:
@@ -557,7 +719,7 @@ def _citations(text: str, surnames: frozenset[str] = frozenset()) -> str:
         def listed(match: re.Match) -> str:
             items = match.group("list")
             return match.group(0)[: match.start("list") - match.start()] + ";".join(
-                _item(item, cited) for item in items.split(";")
+                _item(item, cited, NOT_SOURCES) for item in items.split(";")
             )
 
         text = SOURCES.sub(listed, text)
@@ -565,10 +727,27 @@ def _citations(text: str, surnames: frozenset[str] = frozenset()) -> str:
         text = hold(text, [s for m in C4.finditer(text) for s in _names(m, _AS_PLACE_COMMA, surnames)])
     if " and " in text or "&" in text:
         text = hold(text, [s for m in C5.finditer(text) for s in _pair(m, surnames)])
-    text = hold(text, [s for m in C6.finditer(text) for s in _names(m, _AS_PLACE, surnames)])
-    text = hold(text, [s for m in C7.finditer(text) for s in _names(m)])
+        text = hold(text, _year_lists(text, surnames))
+    text = hold(
+        text,
+        [
+            s
+            for m in C6.finditer(text)
+            for s in _names(
+                m, _AS_PLACE, surnames, words=NOT_SOURCES if m.group(0).startswith("In") else frozenset()
+            )
+        ],
+    )
+    text = hold(text, [s for m in C7.finditer(text) for s in _names(m, words=NOT_SOURCES)])
     if "'s" in text or "’s" in text:
-        text = hold(text, [span for m in C8.finditer(text) if (span := _person(m))])
+        text = hold(
+            text,
+            [
+                span
+                for m in C8.finditer(text)
+                if (span := _person(m)) and not _only(text[span[0] : span[1]], NOT_SOURCES)
+            ],
+        )
     return _again(text, cited)
 
 
@@ -989,7 +1168,7 @@ def for_ai(text: str, people: People = NOBODY, own: frozenset[str] = frozenset()
         return text
     text = watch_people.visible(text)
     text = _emails(text)
-    text = redact.LINK.sub(LINK_WITHHELD, text)
+    text = watch_people.glued_after(redact.LINK.sub(LINK_WITHHELD, text))  # "[link withheld].it" loses ".it"
     text = watch_people.PREFIXED_PHONE.sub(PHONE_WITHHELD, text)
     text = watch_people.INTL_PHONE.sub(PHONE_WITHHELD, text)
     return _people(text, people, own)

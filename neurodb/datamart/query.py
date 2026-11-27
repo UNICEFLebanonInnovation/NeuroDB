@@ -671,7 +671,7 @@ def clean_written(
     text = people.EMAIL.sub(people.EMAIL_WITHHELD, text)
     if _AT_HINT.search(text):
         text = people.without_paths(_on_one_line(text, people.EMAIL.finditer, email))
-    text = people.scrub(redact.LINK.sub(redact.LINK_WITHHELD, text), names, own)
+    text = people.scrub(people.glued_after(redact.LINK.sub(redact.LINK_WITHHELD, text)), names, own)
     if _AT_HINT.search(text):
         text = _on_one_line(AT_WORD.sub(people.EMAIL_WITHHELD, text), AT_WORD.finditer, email)
     if _DIGIT.search(text):

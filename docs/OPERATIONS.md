@@ -422,13 +422,25 @@ come from.
     "for more info at [link withheld]" and "children at school.it was crowded" stays; a role's mailbox
     ("info", "data", "office", "contact", "support", `people.ROLE_NAMES`) written to or opening the text is
     an address's name: "write to [email withheld]", "send it to [email withheld]", "data at example.online"
-    goes whole): a common word ("children at [link withheld]"), a measure or what a
+    goes whole; so is any word that names no one when the text writes to it or calls it an address
+    (`people._keeps_named`: "cc partners at", "From: monitoring at", "Email address: info at", "The address
+    is data at", "the focal point is monitoring at", "Is info at example.org the right address?", "Questions?
+    monitoring at", "email the office at", an item after a phone number in a list of contacts) and, in what
+    a person types, before a domain whose words no sentence writes, a measure's, a report's or a page's word
+    that opens the text or a sentence, or that no determiner makes a thing before what follows an address
+    ("status at example.online", "dropout at example.plus before June"); a domain whose words no sentence
+    writes (`people._foreign`) is a web address's whatever its ending and whatever follows ("How many visits
+    at [link withheld] were done", "the guide at [link withheld] was down"), and what the link rule leaves
+    glued after a link goes with it ("more info at [link withheld]" from "example.com.it", "registration at
+    [link withheld] was closed" from "mail.example.it" in a record): a common word ("children at [link
+    withheld]"), a measure or what a
     question counts ("the enrolment at", "rates at", "dropout at", "the GER at", "cases at", "partners at") or
     a web address's, a citation's or a page's word ("available", "published", "the dashboard", "the guide",
     "the profile", "accessed", "Contact us", "the focal point", "the methodology", "the chart", "an error at",
     "the red flag at", "the page is blank at", "I am stuck at", "the map hangs at"), or a code, which names no
-    one ("How many G5 at [link withheld]", "F09 at [link withheld]"; written to before a domain no sentence
-    writes, a code is an address's name: "write to KG2 at example.it" goes whole); "visits at mt.lebanon",
+    one ("How many G5 at [link withheld]" for "Tyre.Gov"; before a domain whose words no sentence writes, a
+    code is an address's name whatever follows, in every text: "How many [email withheld]", "team1 at
+    example. org before June", "G5 at mail.example.it thanks" go whole); "visits at mt.lebanon",
     "red flags at akkar.district" stay. What is glued after an address's domain goes with it ("x at
     example.co.It", "x at mail.example.me", "x@example[.]com.lb", "x at example dot gov.lb", "x at example.
     net.lb", "x@example.com. lb", "x @pytest.mark.parts_may_fail"), and so does a name written with spaced
@@ -530,6 +542,12 @@ come from.
     rule reads them after, a web address written after a word and "at" goes there as a link ("Contact us at
     [link withheld]", "How many Session2 at [link withheld]"); a text without one is sent exactly as it is,
     and a CPD in PDF is sent as the file, not cleaned.
+  - After a dot and a space, a sentence that goes on after a place or a time of day is no domain
+    (`people.SENTENCE_NOUNS`; "Org" may start a sentence too): "Volunteers worked at night. Net enrolment
+    rose", "Kits were delivered at Akkar. Org chart updated", "We started at dawn. Info: 40 kits were
+    delivered" stay; "is Zfakemira at example. ORG correct?" and "x2 at example. fr sent the report" do not.
+    In a record's text, a plain word before a domain whose words no sentence writes, that no link rule takes,
+    is an address's name ("Rania at example.it has the files").
   - In a record's text, a name in capitals and "AT", or of capitals and digits, before a domain whose words
     before its ending no sentence writes (`people._foreign`: not a common word, a place or a code) is an
     address's name whatever the ending's case and whatever follows it ("X AT EXAMPLE.IT HAS THE DATA", "X2
@@ -1673,14 +1691,25 @@ asked). In order:
    two words before it: "As also noted in Naameh 2021"; also the earlier one's when a list goes on from a
    source: "reported for Naameh, 2021 and for Akar, 2020"), a source's verb after its year ("In Lebanon, Akar
    and Naameh 2020 found", "Girls in Naameh 2021 reported"; "Numbers for Sayda, 2024 show a rise" stays), a
-   parenthesis ("(for Naameh, 2021)"), each name of a pair judged on its own ("from Tyre and Qana 2024" keeps
+   parenthesis ("(for Naameh, 2021)"), each name of a pair judged on its own, without a request's word or
+   "In" before it ("Show Beirut and Tyre 2023", "In Chtoura and Zahle 2023" keep every word), a place kept
+   wherever it is written making the other a place ("What about Saida and Tyre 2023?", "What about Majdal
+   Anjar and Tyre 2023?"; "Akar and Tyre 2020 found" withholds "Akar"; "from Tyre and Qana 2024" keeps
    both; "&" joins a
    citation's authors, never places: "from Akar & Naameh 2020" and "Numbers for Akar & Naameh, 2020" withhold
    both, "from Tyre & Doering 2020" "Doering"); a place's name of several words in a source's form ("Jabal
    Mohsen et al.", "Jabal Mohsen (2020) found", "Deir Ammar (2019) reported") is a name there too, a place
    before a bare year ("child labour (Jabal Mohsen 2023)"), "According to Naameh 2021", "Sources: Akar 2018;
-   Naameh 2021", "In Doe 2021," at a sentence's
-   start ("In Saida 2023," stays), an interview's speaker "– Sayda, 14", "(Houla, 15)", "“…,” said Naameh,
+   Naameh 2021" (an exam, a school's level, a subject, a tool or a way of collecting data there is no name:
+   "In Brevet 2023", "Source: Fieldwork 2023", "Data: ActivityInfo 2023", "Kobo's 2023 data"; a holiday that
+   is a family name too goes: "In Ramadan 2023"), "In Doe 2021," at a sentence's
+   start ("In Saida 2023," stays), a scholar's verb or a publication's part before "in" ("This was examined
+   in Naameh 2021", "See the chapter in Hasroun 2021", "Table 2 in Naameh 2021"), a verb in the passive ("This
+   was collected in Sayda 2021"; "Children were enrolled in Saida 2023" stays), any verb and "that", or ","
+   "which" and a verb, after the year ("Families from Houla 2021 adds that", "in Qana 2021, which found"), a
+   list with a year after each name ("Rates in Akar 2016, Naameh 2018 and Kousba 2019 rose": every name goes,
+   unless every other one is a place kept wherever it is written: "in Saida 2023 and Tyre 2024"), an
+   interview's speaker "– Sayda, 14", "(Houla, 15)", "“…,” said Naameh,
    16", "In an interview with Sayda, 14,", and a document's own author "Naameh, R." (its surname is withheld
    in that document's texts). The typed text is searched (never an address in it, written out or not, by the
    same rule), never kept or sent. The questions sent (and earlier questions of the conversation) are checked

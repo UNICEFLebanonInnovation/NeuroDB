@@ -66,7 +66,11 @@ address.
   names no one ("children at [link withheld]", "the dashboard at [link withheld]"). After such a word, a
   site's address goes as a link when it has a known ending, a newer one (".online", ".tech", ".blog") or a
   country's (".sy", ".tv"), a path or a port: "for more info at [link withheld]"; a role's mailbox written to
-  ("write to info at ...", "send it to data at ...") is part of the address and goes whole, and so does what
+  ("write to info at ...", "send it to data at ...") is part of the address and goes whole, and so is any word
+  you write to or call an address ("cc partners at ...", "From: monitoring at ...", "Is info at ... the right
+  address?"). A site's address whose words no sentence writes goes as a link whatever its ending ("How many
+  visits at [link withheld] were done"), and a code before it goes with it ("How many [email withheld]"); what
+  is glued after a link goes too ("more info at [link withheld]"), and so does what
   is glued after an address ("x at example.co.It", "x at example dot gov.lb"). A full link (one that starts
   with "https", "http", "mailto" or "//", also mistyped or defanged: "http//", "htps://", "hxxps[:]//") is
   never an e-mail address: the word before it stays ("the red flag at [link withheld]") unless it is shaped
@@ -85,7 +89,9 @@ address.
   Akkar. NGO staff") or a time before "at" ("9.30am at halba.we met") is no address and stays; after ". ",
   ".net", ".info", ".fr" and the like end an address when nothing of the sentence follows them ("x at example.
   net before June", "x at hotmail. fr", "x at example. net Monday", "x at example. net regarding the data", "x
-  at example. net is the focal point") or after "contact", "email" or "write to". Your earlier questions are
+  at example. net is the focal point") or after "contact", "email" or "write to"; a time of day or a place, a
+  full stop and a new sentence stays ("Volunteers worked at night. Net enrolment rose", "Kits were delivered
+  at Akkar. Org chart updated"). Your earlier questions are
   cleaned so again each time they are sent, and come out the same (in Chat with Data and the Help assistant, a
   plain word before a full link goes then, unless it names no one). In notes, answers and action point texts,
   an address goes whole when it is written with "dot", in brackets or dashes, with an at sign, in capitals

@@ -700,3 +700,34 @@ def test_what_the_pushed_rules_withheld_stays_withheld():
         "children at example.org"
     )
     assert not people.withheld_typed("How many visits at Halba had red flags?")
+
+
+def test_what_the_pushed_rules_withheld_stays_withheld_round_two():
+    """The second regression sweep: a role's mailbox after a phone number in a list of contacts is an address's
+    name; what the link rule leaves glued after a link withheld goes with it; a code before a domain whose words
+    no sentence writes is an address's name in every path; a capitalised name inside a sentence before a dot,
+    a space and an ending is an address's ("is Zfakemira at example. ORG correct?"), a plain verb is not
+    ("Volunteers worked at night. Net enrolment rose.")."""
+    assert (
+        people.without_addresses("Tel 01 234 567 / office at example.org")
+        == "Tel 01 234 567 / [email withheld]"
+    )
+    assert redact.text("Phone 01 234 567, info at example.org", 500, frozenset()) == (
+        "Phone 01 234 567, [email withheld]"
+    )
+    assert people.glued_after("see [link withheld].it was closed") == "see [link withheld] was closed"
+    assert people.glued_after("see [link withheld]. It was closed") == "see [link withheld]. It was closed"
+    assert redact.text("Visit example.com.it today", 500, frozenset()) == "Visit [link withheld] today"
+    for text, sent in {
+        "How many G5 at example.it was closed": "How many [email withheld] was closed",
+        "F09 at Example.Org": "[email withheld]",
+        "Grade5 at fakemira-school.Be is old": "[email withheld] is old",
+    }.items():
+        assert people.without_addresses(text) == sent, text
+        assert people.without_emails(text) == sent, text
+        assert redact.text(text, 500, frozenset()) == sent, text
+    assert people.without_addresses("is Zfakemira at example. ORG correct?") == "is [email withheld] correct?"
+    assert (
+        people.without_addresses("Who wrote the profile at example.org?")
+        == "Who wrote the profile at [link withheld]?"
+    )

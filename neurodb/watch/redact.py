@@ -300,7 +300,7 @@ def text(
     :func:`people.scrub`), and at most ``limit`` characters."""
     clean = " ".join(people.visible(value).split())
     clean = people.withhold_addresses(clean)  # before links: an address holds a domain
-    clean = people.scrub(LINK.sub(LINK_WITHHELD, clean), names, extra)
+    clean = people.scrub(people.glued_after(LINK.sub(LINK_WITHHELD, clean)), names, extra)
     return clean[:limit]
 
 

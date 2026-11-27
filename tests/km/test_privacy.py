@@ -1019,9 +1019,11 @@ def test_a_town_written_as_a_source_is_withheld_even_with_no_author_known():
 
 def test_a_km_download_loses_a_codes_web_address_as_a_link():
     """A code before "at" names no one, but its web address goes as a link in a download too (no link rule
-    reads it after), as the AI reads it; a code before a place and a sentence missing its space stays."""
+    reads it after), as the AI reads it; before a domain whose words no sentence writes it is an address's
+    name, as the pushed rules read it ("F09 at Example.Org"); a code before a place and a sentence missing its
+    space stays."""
     for text, sent in {
-        "F09 at Example.Org": "F09 at [link withheld]",
+        "F09 at Example.Org": "[email withheld]",
         "CE1 at Tyre.Net 2023": "CE1 at [link withheld] 2023",
     }.items():
         assert privacy.for_download(text) == sent, text
@@ -1030,3 +1032,114 @@ def test_a_km_download_loses_a_codes_web_address_as_a_link():
         privacy.for_download("Students of KZ3 at school.it was hot.")
         == "Students of KZ3 at school.it was hot."
     )
+
+
+# ------------------------------------------------------------------ the second regression sweep (KM names)
+# a pair of places before a year: the words a request or a sentence opens with are no name ("Show", "Compare",
+# "In"), and a place kept wherever it is written makes the other a place too
+PAIRS_KEPT = (
+    "Show Beirut and Tyre 2023",
+    "Compare Akkar and Tripoli 2023",
+    "In Chtoura and Zahle 2023, fees rose.",
+    "In Bar Elias and Zahle 2023, fees rose.",
+    "What about Saida and Tyre 2023?",
+    "Visits to Chtoura and Tyre 2023",
+    "What about Majdal Anjar and Tyre 2023?",
+    "Haret Hreik and Beirut 2023 dropout rates",
+    "in Tyre, Qana and Houla 2024",
+)
+PAIRS_WITHHELD = {
+    "from Tyre & Doering 2020": f"from Tyre & {W} 2020",
+    "Quenvell and Tyre 2023 found high dropout.": f"{W} and Tyre 2023 found high dropout.",
+    "Show Quenvell and Tyre 2023": f"Show {W} and Tyre 2023",
+    "Akar and Tyre 2020 found": f"{W} and Tyre 2020 found",
+}
+
+
+@pytest.mark.django_db
+def test_a_pair_of_places_before_a_year_keeps_its_places_and_its_first_word():
+    """C5 ("X and Y 2023"): a request's word or "In" before the first place is no name, and a place kept
+    wherever it is written makes the pair one of places; "&", a source's verb after the year or a name that
+    is no place still goes, and so does one of the KM Database's surnames."""
+    for text in PAIRS_KEPT:
+        assert privacy.for_ai(text) == text, text
+        assert privacy.clean_question(text) == text, text
+    for text, sent in PAIRS_WITHHELD.items():
+        assert privacy.for_ai(text) == sent, text
+        assert privacy.for_download(text) == sent, text
+    saida = privacy.People(surnames=frozenset({"saida"}))
+    assert privacy.for_ai("What about Saida and Tyre 2023?", saida) == f"What about {W} and Tyre 2023?"
+    assert privacy.for_ai("Show Midterm and Tyre 2023") == "Show Midterm and Tyre 2023"
+    assert (
+        privacy.for_ai("Brevet and Zelwick 2020 found high dropout.")
+        == f"{W} and {W} 2020 found high dropout."
+    )
+
+
+@pytest.mark.django_db
+def test_a_sources_word_after_in_or_a_source_is_no_name():
+    """After a sentence's "In", a source's words ("Source:", "Data:", "Based on") or before a possessive and a
+    year, an exam, a school level, a way of collecting data or a tool is no person ("In Brevet 2023",
+    "Source: Fieldwork 2023", "Data: ActivityInfo 2023", "Kobo's 2023 data"); a holiday that is a family name
+    too ("Ramadan", "Eid") and an invented surname still go."""
+    for text in (
+        "In Kindergarten 2023, attendance fell.",
+        "In Brevet 2023, how many students passed?",
+        "Data: ActivityInfo 2023.",
+        "Based on Brevet 2023 results, pass rates fell.",
+        "Source: Fieldwork 2023.",
+        "Source: Interviews 2023.",
+        "Kobo's 2023 data show high dropout.",
+    ):
+        assert privacy.for_ai(text) == text, text
+        assert privacy.clean_question(text) == text, text
+    for text, sent in {
+        "In Ramadan 2023, attendance fell.": f"In {W} 2023, attendance fell.",
+        "Source: Zorgwell 2023.": f"Source: {W} 2023.",
+        "Eid et al. (2019) found high dropout.": f"{W} et al. (2019) found high dropout.",
+    }.items():
+        assert privacy.for_ai(text) == sent, text
+
+
+def test_a_list_with_a_year_after_each_name_is_a_list_of_sources():
+    """ "in X 2016, Y 2018 and Z 2019": every name goes, the first too, unless every other one is a place kept
+    wherever it is written ("in Saida 2023 and Tyre 2024", "in Akar 2016, Halba 2018 and Tripoli 2019")."""
+    for text, sent in {
+        "Rates in Akar 2016, Naameh 2018 and Kousba 2019 rose.": f"Rates in {W} 2016, {W} 2018 and {W} 2019 rose.",
+        "This mirrors the rates in Akar 2016 and Kousba 2019.": f"This mirrors the rates in {W} 2016 and {W} 2019.",
+        "Dropout was high in Naameh 2018 and Kousba 2019.": f"Dropout was high in {W} 2018 and {W} 2019.",
+        "Dropout was high in Naameh 2018 and in Kousba 2019.": f"Dropout was high in {W} 2018 and in {W} 2019.",
+    }.items():
+        assert privacy.for_ai(text) == sent, text
+        assert privacy.for_download(text) == sent, text
+    for text in (
+        "Any data on child marriage in Saida 2023 and Tyre 2024?",
+        "Rates in Akar 2016, Halba 2018 and Tripoli 2019 rose.",
+    ):
+        assert privacy.for_ai(text) == text, text
+
+
+@pytest.mark.django_db
+def test_a_scholars_verb_or_a_publications_part_before_in_makes_a_source():
+    """A town's spelling after "in" is a source's name after a scholar's verb ("examined", "analysed"), a verb
+    in the passive ("was collected"), a publication's part ("the chapter", "Table 2", "The framework"), or
+    before a source's verb or a verb and "that" ("2021 revealed", "2021 adds that"), or ", which found"; a
+    place stays ("Dropout in Akar 2023 was high.")."""
+    for text, sent in {
+        "This was examined in Naameh 2021.": f"This was examined in {W} 2021.",
+        "Similar patterns were analysed in Kousba 2019.": f"Similar patterns were analysed in {W} 2019.",
+        "See the chapter in Hasroun 2021.": f"See the chapter in {W} 2021.",
+        "Table 2 in Naameh 2021 shows the rates.": f"Table 2 in {W} 2021 shows the rates.",
+        "The framework in Akar 2020 applies.": f"The framework in {W} 2020 applies.",
+        "Girls in Naameh 2021 revealed high rates.": f"Girls in {W} 2021 revealed high rates.",
+        "This was collected in Sayda 2021.": f"This was collected in {W} 2021.",
+        "Families from Houla 2021 adds that fees rose.": f"Families from {W} 2021 adds that fees rose.",
+        "The issue is captured in Qana 2021, which found high dropout.": (
+            f"The issue is captured in {W} 2021, which found high dropout."
+        ),
+    }.items():
+        assert privacy.for_ai(text) == sent, text
+        assert privacy.for_download(text) == sent, text
+        assert privacy.clean_question(text) == sent, text
+    assert privacy.for_ai("Dropout in Akar 2023 was high.") == "Dropout in Akar 2023 was high."
+    assert privacy.for_ai("Children were enrolled in Saida 2023.") == "Children were enrolled in Saida 2023."

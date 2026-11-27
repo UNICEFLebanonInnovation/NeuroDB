@@ -150,6 +150,21 @@ TYPED = "out of school children in Akkar, contact {} before June"
 RECORD = "For the data, write to {} before June."
 # sentences of records that are no address, and how a record's text is sent (links withheld as links)
 NOT_ADDRESSES = {
+    # (regression sweep 2) a two-sentence field note: a place or a time of day, a full stop and a space, then a
+    # sentence that starts with "Net", "Info", "De", "Ngo" or "Org": no address, whatever the word before "at"
+    "Volunteers worked at night. Net enrolment rose.": "Volunteers worked at night. Net enrolment rose.",
+    "Staff were present at night. Info sessions followed.": "Staff were present at night. Info sessions followed.",
+    "Classes started at dawn. Net enrolment was 80%.": "Classes started at dawn. Net enrolment was 80%.",
+    "The visit ended at sunset. Info sessions are planned.": "The visit ended at sunset. Info sessions are planned.",
+    "Teachers were trained at night. De facto the school closed.": (
+        "Teachers were trained at night. De facto the school closed."
+    ),
+    "Mothers came at dawn. Ngo staff helped.": "Mothers came at dawn. Ngo staff helped.",
+    "Kits were delivered at Akkar. Org chart updated.": "Kits were delivered at Akkar. Org chart updated.",
+    "Staff were present at Mt. Lebanon. Org chart updated.": "Staff were present at Mt. Lebanon. Org chart updated.",
+    "Children at Akkar. Org chart updated.": "Children at Akkar. Org chart updated.",
+    "KG2 at night. Net enrolment rose.": "KG2 at night. Net enrolment rose.",
+    "We started at dawn. Info: 40 kits were delivered.": "We started at dawn. Info: 40 kits were delivered.",
     "The report was published at Example.Org last year.": "The report was published at [link withheld] last year.",
     "The office is located at Tyre.Net in the south.": "The office is located at [link withheld] in the south.",
     "Children at school.it was said": "Children at school.it was said",
@@ -295,11 +310,38 @@ RECORD_LINKS = {
     "See the guidance at zaynafakemira.ngo for details.": "See the guidance at [link withheld] for details.",
     "Email us at zfakemira.de.": "Email us at [link withheld].",
     "Contact us at zaynafakemira.online for the files.": "Contact us at [link withheld] for the files.",
+    # (regression sweep 2) a domain of several labels, or one the link rule ends before its last label: the
+    # labels glued after it go with it
+    "more info at example.com.it": "more info at [link withheld]",
+    "registration at mail.example.it was closed": "registration at [link withheld] was closed",
+    "the dashboard at portal.example.no is down": "the dashboard at [link withheld] is down",
+    "How many visits at rania-fakemira.it were done": "How many visits at [link withheld] were done",
 }
 # questions a person types that hold no address, and how they are sent: a place written with an abbreviation,
 # a sentence missing its space, a web address after a word (withheld as a link, its path too)
 TYPED_NOT_ADDRESSES = {
     "How many visits at Mt.Lebanon had red flags?": "How many visits at Mt.Lebanon had red flags?",
+    # (regression sweep 2) a word that names no one, which nothing writes to and no header names, before a
+    # domain whose words no sentence writes: the domain goes as a link, whatever its ending and what follows
+    "How many visits at rania-fakemira.it were done": "How many visits at [link withheld] were done",
+    "the guide at rania-fakemira.page was down": "the guide at [link withheld] was down",
+    "the dashboard at portal.example.no is down": "the dashboard at [link withheld] is down",
+    "Show enrolment at zfakemira.us for girls": "Show enrolment at [link withheld] for girls",
+    "the data at example.org was updated": "the data at [link withheld] was updated",
+    "For more info at example.org see the guide": "For more info at [link withheld] see the guide",
+    "Go to registration at example.org": "Go to registration at [link withheld]",
+    "Contact us at example.org": "Contact us at [link withheld]",
+    # a two-sentence note: a time of day or a place, a full stop and a space, then a sentence that starts with
+    # "Net", "Info", "De", "Ngo" or "Org"
+    "Volunteers worked at night. Net enrolment rose.": "Volunteers worked at night. Net enrolment rose.",
+    "Teachers were trained at night. De facto the school closed.": (
+        "Teachers were trained at night. De facto the school closed."
+    ),
+    "Children studied at home. Net enrolment rose.": "Children studied at home. Net enrolment rose.",
+    "Kits were delivered at Akkar. Org chart updated.": "Kits were delivered at Akkar. Org chart updated.",
+    "Staff were present at Mt. Lebanon. Org chart updated.": "Staff were present at Mt. Lebanon. Org chart updated.",
+    "Kits were delivered at Tripoli. Org chart updated.": "Kits were delivered at Tripoli. Org chart updated.",
+    "We started at dawn. Info: 40 kits were delivered.": "We started at dawn. Info: 40 kits were delivered.",
     # (regression sweep) a code names no one: its web address goes as a link, as after a common word; a
     # school year's code ("SY2024") before a sentence missing its space stays
     "How many G5 at Tyre.Gov": "How many G5 at [link withheld]",
@@ -518,7 +560,7 @@ TYPED_ADDRESSES = {
     "Can I send the forms to data at zaynafakemira.sy before June": (
         "Can I send the forms to [email withheld] before June"
     ),
-    "Is support at zaynafakemira.tech the right contact": "Is support at [link withheld] the right contact",
+    "Is support at zaynafakemira.tech the right contact": "Is [email withheld] the right contact",
     "write to info at zaynafakemira.it": "write to [email withheld]",
     "write to info at zaynafakemira.in": "write to [email withheld]",
     "write to info at zaynafakemira.es": "write to [email withheld]",
@@ -631,6 +673,33 @@ TYPED_ADDRESSES = {
     "Send the forms to one of these: zfakemira at example. net": (
         "Send the forms to one of these: [email withheld]"
     ),
+    # (regression sweep 2) a word that names no one is an address's name when the text writes to it, an
+    # e-mail's header names it, a sentence calls it an address or "the right address" follows its domain
+    "write to monitoring at example.org": "write to [email withheld]",
+    "To: monitoring at example.org": "To: [email withheld]",
+    "Sender: monitoring at example.org": "Sender: [email withheld]",
+    "From: monitoring at example.org": "From: [email withheld]",
+    "cc monitoring at example.org": "cc [email withheld]",
+    "cc partners at example.org": "cc [email withheld]",
+    "From: partners at example.org": "From: [email withheld]",
+    "send it to partners at example.org": "send it to [email withheld]",
+    "Email address: info at example.org": "Email address: [email withheld]",
+    "Reply-to: info at example.org": "Reply-to: [email withheld]",
+    "The address is data at example.org": "The address is [email withheld]",
+    "the focal point is monitoring at example.org": "the focal point is [email withheld]",
+    "Is info at example.org the right address?": "Is [email withheld] the right address?",
+    "Questions? monitoring at example.be before June": "Questions? [email withheld] before June",
+    "email the office at example.org": "email the [email withheld]",
+    "reach the data team at example.org": "reach the data [email withheld]",
+    # a measure's, a report's or a page's word that opens the text, or that no determiner makes a thing before
+    # what follows an address, before a domain whose words no sentence writes
+    "status at example.online.": "[email withheld].",
+    "registration at example.it please": "[email withheld] please",
+    "registration at mail.example.it was closed": "[email withheld] was closed",
+    "dropout at zaynafakemira.plus before June": "[email withheld] before June",
+    # a code before a domain whose words no sentence writes: an address's name, whatever follows
+    "How many KG2 at zaynafakemira.it were enrolled": "How many [email withheld] were enrolled",
+    "How many G5 at example.it": "How many [email withheld]",
 }
 # what a record's or a document's text holds that is an address, and how it is sent: a name holding a digit
 # anywhere, letters then digits in capitals, "AT" in capitals before a word of two letters, an address's name
@@ -724,6 +793,19 @@ RECORD_ADDRESSES = {
     "Who is zfakemira2 at example. fr sent the report": "Who is [email withheld] sent the report",
     "Please contact zfakemira @ example .it if needed.": "Please contact [email withheld] if needed.",
     "Fake survey: data held by KZ3 at example.no.": "Fake survey: data held by [email withheld].",
+    # (regression sweep 2) a code before a domain whose words no sentence writes, with a space after its dot, a
+    # newer ending or several labels, whatever follows; a word that names no one written to or after an
+    # e-mail's header; a plain word before such a domain that no link rule takes
+    "team1 at example. org before June": "[email withheld] before June",
+    "KG2 at example. org was the focal point": "[email withheld] was the focal point",
+    "G5 at example.online was closed": "[email withheld] was closed",
+    "G5 at mail.example.it thanks": "[email withheld] thanks",
+    "CE1 at example. com 2023": "[email withheld] 2023",
+    "write to monitoring at example.org": "write to [email withheld]",
+    "From: partners at example.org": "From: [email withheld]",
+    "Reply-to: info at example.org": "Reply-to: [email withheld]",
+    "Is info at example.org the right address?": "Is [email withheld] the right address?",
+    "Rania at example.it has the files": "[email withheld] has the files",
 }
 # what a person types with an address's name before a link's scheme (a name's shape, or "at" written as no
 # sentence writes it): no e-mail address, but its name goes as one would (what is sent and kept is the same on
