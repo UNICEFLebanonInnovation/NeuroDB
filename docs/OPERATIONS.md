@@ -401,10 +401,11 @@ come from.
     the Monitoring insights chat, of the Help assistant or of the KM Database, each earlier question sent
     again, the Help page's title and the search words of a Monitoring insights filter. "x at example.org",
     "x(at)example.org", "x [ at ] example [ dot ] org", "x -at- example -dot- org", "x at example dot org",
-    "X AT EXAMPLE.ORG", "x at Example.Org", "x at mail.example.invalid", "x at example. org", "x at example.
-    lb", "x at example. net. lb", "x at example. invalid", "x at example. Org" (a capital a phone's keyboard
-    puts after ". ", for ".org", ".com", ".lb", ".ngo" and ".invalid"), "x at example .org", "x @ example dot
-    org", "x [@] example [dot] org", "x at example dot invalid", "x at example[.]invalid", "x at
+    "X AT EXAMPLE.ORG", "x at Example.Org", "x at mail.example.invalid", "x at example.ogr", "x at
+    example.online", "x at example. org", "x at example. lb", "x at example. net. lb", "x at example.
+    invalid", "x at example. Org" (a capital a phone's keyboard puts after ". ", for ".org", ".com", ".lb",
+    ".ngo" and ".invalid"), "x at example. net before June", "x@example. info", "x at example .org", "x @
+    example dot org", "x [@] example [dot] org", "x at example dot invalid", "x at example[.]invalid", "x at
     example<.>org", "x arobase example.org", "x 'at' example.org", "x 'at' example 'dot' org", "x *at*
     example *dot* org", "x /at/ example /dot/ org", "x at-sign example.org", "x at at example.org", "x at
     example period org", "x(a)example.org", "x-at-example-dot-org", "x-at-example-dot-invalid" and
@@ -414,19 +415,32 @@ come from.
     stays). A word that names no one before "at" stays and the domain goes as a link, its path too: a common
     word ("children at [link withheld]") or a web address's, a citation's or a page's word ("available",
     "published", "the dashboard", "the guide", "the profile", "accessed", "Contact us", "the focal point",
-    "the methodology", "the chart", "an error at [link withheld]"); any other word goes with the address,
-    and so does what is left of a path after it ("x at example.org/ops"), and so does a word before "at" and
-    a link written with its scheme ("x at https://example.org": the same on every turn, as an earlier
-    question cleaned again). A domain's last part counts in any case when it is a known ending (".org",
-    ".lb", ".invalid"...), any other only in lower case and when it is no word of a sentence; after a plain
-    word and "at", only one of two letters ("x at example.sy") or after two parts or more, so that "at
-    Mt.Lebanon", "at St.Joseph", "at Akkar.No evidence", "at Halba.please list them", "at zahle.thanks" and
-    "at akkar.ok" stay, and so do a sentence after a place and ". " ("at Halba. Net enrolment rose", "at
-    Tyre. De facto", "at Akkar. Gov staff") and a time or an item's number before "at" ("9.30am at
-    halba.we met", "Visit no.2 at akkar.we"). A question kept before this rule, whose domain alone was
-    taken as a link ("x at [link withheld]"), loses the name when it is sent again (Monitoring insights
-    chat, Help assistant). Not read: two addresses sharing one domain ("ask x, y at example.org": the first
-    name stays), and an invisible separator glued to "at" ("x\u2063at example.org").
+    "the methodology", "the chart", "an error at", "the red flag at", "the page is blank at", "I am stuck
+    at"); any other word goes with the address, and so does what is left of a path after it ("x at
+    example.org/ops", "x at www.example.org"). A link written with its scheme ("https://", "ftp://") is
+    never an e-mail address: the word before "at" stays and the link goes as a link ("the score at [link
+    withheld]"), unless that word has an address's name's shape (a full stop, "_", "+" or a digit) or "at"
+    is written as no sentence writes it ("x.y at https://example.org", "x (at) https://example.org" go as
+    an address). A domain's last part counts in any case when it is a known ending (".org", ".lb",
+    ".invalid"...), any other only in lower case and when it is no word of a sentence; after a plain word
+    and "at", an ending no address has counts too ("x at example.sy", "x at example.ogr", "x at
+    example.con", "x at example.online", "x at example dot ogr"), but not a word a sentence missing its
+    space after a place goes on with ("please", "thanks", "thx", "compare", "sorry", "show", "list", "ok"
+    and the common words), so that "at Mt.Lebanon", "at St.Joseph", "at Akkar.No evidence", "at
+    Halba.please list them", "at zahle.thanks" and "at akkar.ok" stay. After ". ", an ending a sentence may
+    start with ("eg", "qa", "uk", "fr", "ngo", "NGO", "Ngo", "Invalid", "LB", "Com", "ORG") counts only
+    after an address's name or an "at" no sentence writes ("at schools. eg water", "at akkar. uk funded",
+    "at Akkar. NGO staff", "at Halba. ORG chart" stay; "x at example. lb", "x at example. Org" go); ". net",
+    ". info" and ". de" count after a word that names someone when no word of the sentence follows them
+    ("x at example. net before June", "x at example. Net."; "at Halba. Net enrolment rose", "at Halba. info
+    sessions", "at Halba. info on dropout", "at Tyre. De facto" stay), and always after an address's name or
+    an at sign ("x@example. info"). A time, an item's number, a grade or "COVID-19" before "at" ("9.30am at
+    halba.we met", "Visit no.2 at akkar.we", "KG2 at school.it was") names no one. A question kept before
+    this rule, whose domain alone was taken as a link ("x at [link withheld]"), loses the name when it is
+    sent again (Monitoring insights chat, Help assistant), and so does a plain word before a link with its
+    scheme on the next turn, which reads the same (unless it names no one). Not read: two addresses sharing
+    one domain ("ask x, y at example.org": the first name stays), and an invisible separator glued to "at"
+    ("x\u2063at example.org").
   - *Record and document texts* get the record rule (`people.withhold_addresses`): narratives, answers,
     look-up results, earlier answers, documents. An address ending in a common domain in lower case
     (".org", ".com", ".lb"...), also after a space ("x at example .org"), or written with "dot", "period"
@@ -437,13 +451,16 @@ come from.
     dot, only when that word holds a full stop, "_", "+" or a digit (never a time, an ordinal, a measure or
     an item's number: "9.30am", "9am", "2nd", "no.2", "q3") or is in capitals with "AT" ("x.y at
     Example.Org", "x_y at example.invalid", "X AT EXAMPLE.ORG", "x_y at example. org"). The last part of
-    a domain counts as for typed text, and a country's ending that is also a word ("x.y at example.it",
-    "x2 at example.it") only after such a name; after a spelled dot, an ending longer than three letters
-    only after such a name ("x.y at example dot online"). So "published at Example.Org", "located at
+    a domain counts as for typed text, and a country's ending that is also a word of a sentence ("x.y at
+    example.it", "x2 at example.it") only after a name with a full stop, "_" or "+", or of letters then
+    digits not all in capitals ("KG2 at school.it was crowded", "Cases of COVID-19 at school.no classes"
+    stay); after a spelled dot, an ending longer than three letters only after such a name ("x.y at
+    example dot online"). So "published at Example.Org", "located at
     Tyre.Net", "at school.it was", "at 2pm at Halba.We met", "Arrived 10.15am at tyre.it was raining",
     "Visit no.2 at akkar.we met", "DISTRIBUTION AT SITE.NO ISSUES" and "look at the dot plot" keep their
-    words (a domain still goes as a link), and so do "x at Example.Org", "x at example. org" and "x at
-    example.it" after a plain word; any other word before "at www." or a path
+    words (a domain still goes as a link), and so do "x at Example.Org", "x at example. org", "x at
+    example.ogr", "x at example. net" and "x at example.it" after a plain word; any other word before "at
+    www." or a path
     goes with the address ("x at example.org/ops", a list of focal points "x at example dot org/y at
     example dot org"), and so does what is left of the path; look-alike letters are read as such only in
     typed text.
@@ -1496,7 +1513,8 @@ strongest; `neurodb.km.columns.CONFIDENCE_A_STRONGEST` turns on the colours once
   elsewhere in that text),
   interview speakers ("– Fakename, 34", "Fakename, 11, was", "Fakename (20, male)", "Fakename, a boy"),
   reference lists ("Doe, J.", "Roe Poe, M. C."; "Doe J" for a KM author), "Doe 2020:" and "Doe 2020
-  (Lebanon)", a KM author's surname in "(Doe, Lebanon)" or "studies by Doe, Roe and Poe" (with the other
+  (Lebanon)" or "Doe 2021 (Bebnine)" (never an event's or a common noun's word: "Cholera 2022 (Bebnine)",
+  "Floods 2023 (Saida)", "Displacement 2024 (Saida)" stay), a KM author's surname in "(Doe, Lebanon)" or "studies by Doe, Roe and Poe" (with the other
   names of that list), a name with an office ("Minister Jane Doe", "Jane Doe, Director of"), a KM author's
   surname after a name withheld and a first name before one, the document's own authors by surname (also
   joined to digits or "_" anywhere in a word, "LCRP_Doe_2019", "survey_doe", or before a hyphen and digits,
@@ -1559,13 +1577,19 @@ asked). In order:
    ("child labour in Saida 2023", "numbers for Sayda, 2024", "for Bab al-Tabbaneh 2024": a country, a
    governorate, a district or a main town anywhere; a place's name of several words of `places.py` written
    whole, never "Elias" or "Mohsen" alone; a town's or a district's other one-word spellings, which are family
-   names too, only after a word that writes a place, "in", "for", "from", "across", "among", "within"...,
-   other places only between them ("in Majdal Anjar and Saadnayel 2023", "in Tyre, Qana and Houla 2024");
-   never a camp, whose name is a family name too), so the question kept, which a follow-up reads again, keeps
-   its place. A town's one-word name written as a person's stays a name: a citation "(Naameh 2021)", "Naameh
-   (2021) found", "According to Naameh and Doe (2021)", an interview's speaker "– Sayda, 14", "(Houla, 15)",
-   and a document's own author "Naameh, R." (its surname is withheld in that document's texts). The typed text is searched (never an address in it, written out or not, by the same rule), never
-   kept or sent. The questions sent (and earlier questions of the conversation) are checked again for a
+   names too, only where they are written as a place before a bare year: after a word that writes a place,
+   "in", "for", "from", "across", "among", "within"... ("in Saida 2023"), before a comma and a year after
+   "for", "across"... only ("numbers for Sayda, 2024"; "Data from Kousba, 2019" and "in Naameh, 2021" are
+   citations), other places only between them and every name listed a place ("in Majdal Anjar and Saadnayel
+   2023", "in Tyre, Qana and Houla 2024"; a comma after a place that opens a sentence lists nothing: "In
+   Lebanon, Kousba, 2019"); never a camp, whose name is a family name too), so the question kept, which a
+   follow-up reads again, keeps its place. A town's one-word name written as a person's stays a name: a
+   citation "(Naameh 2021)", "Naameh (2021) found", "in Naameh (2021)", "In Lebanon, Kousba (2019) found",
+   "from Naameh et al.", "Naameh's (2021) study", "According to Naameh and Doe (2021)", each name of a pair
+   judged on its own ("from Akar & Doering 2020" withholds both, "from Tyre & Doering 2020" "Doering"), an
+   interview's speaker "– Sayda, 14", "(Houla, 15)", and a document's own author "Naameh, R." (its surname
+   is withheld in that document's texts). The typed text is searched (never an address in it, written out or
+   not, by the same rule), never kept or sent. The questions sent (and earlier questions of the conversation) are checked again for a
    surname in any case.
 2. The filters it reads within are those of the tab's address (the Findings tab's filter, carried by the
    tab link, or *Ask about its document*): known keys only, never the search box's words, the sort or the

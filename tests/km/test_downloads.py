@@ -497,3 +497,32 @@ def test_an_address_written_out_with_a_bracketed_dot_is_never_downloaded(client_
     rows = {r["finding_id"]: r for r in _csv(_get(client_viewer, export="csv")[1])}
     assert rows[factory.finding_id(1, 1)]["finding_analysis"] == "For the data, write to [email withheld]."
     assert b"fakeharb" not in _xlsx_text(_get(client_viewer, export="xlsx")[1])
+
+
+def test_a_towns_spelling_written_as_a_citation_is_never_downloaded(client_viewer):
+    """A town's one-word spelling ("Akar", a family name too) cited with a name after "&" that is no place,
+    with "et al." or a year in parentheses: neither name is downloaded, nor written as the search words."""
+    edits = {
+        (
+            "findings",
+            2,
+            "Key Finding",
+        ): "Evidence from Akar & Doering 2020 shows that 30% of fake girls married.",
+        (
+            "findings",
+            3,
+            "Finding Analysis",
+        ): "In Lebanon, Kousba (2019) found that 40% of fake children worked.",
+    }
+    factory.load(factory.workbook(documents=1, findings=3, edits=edits))
+    _, body = _get(client_viewer, export="csv")
+    for name in (b"Akar", b"Doering", b"Kousba"):
+        assert name not in body, name
+    rows = {r["finding_id"]: r for r in _csv(body)}
+    assert rows[factory.finding_id(1, 1)]["key_finding"] == (
+        "Evidence from [name withheld] & [name withheld] 2020 shows that 30% of fake girls married."
+    )
+    _, body = _get(client_viewer, export="xlsx", q="from Akar & Doering 2020")
+    assert b"Doering" not in _xlsx_text(body)
+    about = dict(_sheets(body)["About"][1:])
+    assert about["Filter"] == "Search: (your words are not written here: one of them names an author)"

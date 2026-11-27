@@ -562,6 +562,124 @@ def test_a_documents_own_author_named_as_a_town_is_withheld():
         assert "Naameh" not in cleaned, cleaned
 
 
+# a town's spelling written as a person's: in a citation's shape ("et al.", "(2019)", a parenthesis's item, a
+# possessive), with a name after "&" or "and" that is no place, after a place and the comma that opens a
+# sentence
+TOWN_CITED = (
+    ("Evidence from Akar & Doering 2020 shows that 30% of fake girls married early.", ("Akar", "Doering")),
+    ("Findings from Naameh & Doering 2020 show high dropout.", ("Naameh", "Doering")),
+    ("Data from Akar and Doering 2020 show high dropout.", ("Akar", "Doering")),
+    ("Data from Tyre & Doering 2020 shows dropout.", ("Doering",)),
+    ("Numbers for Akar and Doering, 2020 show dropout.", ("Akar", "Doering")),
+    ("As shown in Naameh (2021), enrolment fell by 12%.", ("Naameh",)),
+    ("Findings from Naameh et al. show high dropout.", ("Naameh",)),
+    ("Data from Kousba, 2019 show a rise in child labour.", ("Kousba",)),
+    ("As discussed in Akar et al. (2020), fees rose.", ("Akar",)),
+    ("The figures in Naameh's (2021) study were higher.", ("Naameh",)),
+    ("The figures in Naameh's 2021 study were higher.", ("Naameh",)),
+    ("Fake data (in Naameh, 2021) show a rise.", ("Naameh",)),
+    ("In Saida, Kousba (2019) counted 1,200 fake girls.", ("Kousba",)),
+    ("In Lebanon, Naameh et al. (2020) estimated that one in four girls married before 18.", ("Naameh",)),
+    ("Among refugee children from Syria, Akar (2019) found that 40% worked.", ("Akar",)),
+    ("In Lebanon, Kousba (2019) found that 40% of refugee children worked.", ("Kousba",)),
+    ("For girls in Akkar, Akar (2019) reports higher dropout.", ("Akar ",)),
+    ("In Saida, Naameh (2021) found that 40% of children were out of school.", ("Naameh",)),
+    ("In Lebanon, Kousba, 2019 found that 40% of children worked.", ("Kousba",)),
+)
+
+
+@pytest.mark.parametrize(("text", "names"), TOWN_CITED)
+def test_a_towns_spelling_written_as_a_citation_is_a_name(text, names):
+    """A town's one-word spelling is a place only in the shapes of a place before a bare year ("in Saida
+    2023", "numbers for Sayda, 2024", "in Tyre, Qana and Houla 2024", where every name listed is a place):
+    "et al.", a year in parentheses, a parenthesis's item, a possessive, a name after "&" that is no place,
+    and a name after a place and the comma that opens a sentence ("In Lebanon, Kousba (2019)") are a
+    person's."""
+    people = privacy.People(surnames=frozenset({"akar", "kousba"}))
+    for cleaned in (
+        privacy.for_ai(text),
+        privacy.for_download(text),
+        privacy.for_ai(text, people),
+        privacy.for_download(text, people),
+    ):
+        assert W in cleaned and not any(name in cleaned for name in names), cleaned
+        assert privacy.leftover(cleaned) == [], cleaned
+    if "Tyre" in text or "Saida," in text or "Lebanon" in text or "Syria" in text:
+        place = re.search(r"Tyre|Saida|Lebanon|Syria|Akkar", text).group()
+        assert place in privacy.for_ai(text)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "asked",
+    [
+        "Summarize the findings from Akar et al. on child marriage",
+        "What is reported in Naameh (2021) about dropout?",
+        "What did findings from Akar & Doering 2020 say about girls who married early?",
+        "In Lebanon, Kousba (2019) found what?",
+    ],
+)
+def test_a_question_loses_a_towns_spelling_written_as_a_citation(asked):
+    cleaned = privacy.clean_question(asked)
+    assert not re.search(r"Akar|Naameh|Doering|Kousba", cleaned), cleaned
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "child labour in Saida 2023",
+        "numbers for Sayda, 2024",
+        "numbers for Saida and Sayda, 2024",
+        "out of school refugees in Majdal Anjar and Saadnayel 2023",
+        "child labour in Tyre, Qana and Houla 2024",
+        "child labour in Tyre, Qana, and Houla 2024",
+        "child labour from Tyre and Qana 2024",
+        "trends in out-of-school children for Aakar 2019-2022",
+    ],
+)
+def test_a_towns_spelling_written_as_a_place_before_a_year_stays(text):
+    for cleaned in (privacy.for_ai(text), privacy.for_download(text)):
+        assert cleaned == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Cholera 2022 (Bebnine) kept children home.",
+        "Floods 2023 (Saida) closed schools.",
+        "Displacement 2024 (Saida) rose.",
+        "Floods 2023 (Akkar) closed schools.",
+        "Cholera 2022 (Tripoli) kept children home.",
+        "Cholera 2022: cases rose.",
+    ],
+)
+def test_a_common_word_before_a_year_and_a_place_in_parentheses_stays(text):
+    """S2 ("Doe 2021 (Bebnine) found"): the word before the year and the place in parentheses must look like a
+    name; a disease, an event or a word of a sentence ("Cholera 2022 (Bebnine)", "Floods 2023 (Saida)")
+    stays."""
+    for cleaned in (privacy.for_ai(text), privacy.for_download(text)):
+        assert cleaned == text
+    assert (
+        privacy.typed_for_ai(f"{text[:-1]}: what did schools report?")
+        == f"{text[:-1]}: what did schools report?"
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Doe 2021 (Bebnine) found high rates.",
+        "Fakename 2021 (Saida) found high rates.",
+        "Fakeone 2020 (Lebanon) relates.",
+        "Clement 2021 (Saida) found high rates.",
+        "Fakeroberts 2021 (Saida) found high rates.",
+    ],
+)
+def test_a_name_before_a_year_and_a_place_in_parentheses_is_withheld(text):
+    for cleaned in (privacy.for_ai(text), privacy.for_download(text)):
+        assert W in cleaned and text.split(" ", 1)[0] not in cleaned, cleaned
+
+
 # ------------------------------------------------- a name with a digit before a two-letter word as an ending
 @pytest.mark.parametrize(
     "text",

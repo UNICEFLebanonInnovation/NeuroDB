@@ -86,15 +86,18 @@ def clean(text: Any, limit: int, names_: frozenset[str] | None = None) -> tuple[
 
 def clean_typed(text: Any, limit: int, names_: frozenset[str] | None = None) -> tuple[str, int]:
     """What a person typed (a chat or Help question, a page's title, the search words of a filter) as it is
-    sent and kept: first every e-mail address written out in any form, by the typed rule
+    sent and kept: first a name a question kept before the typed rule still has before a link withheld ("x
+    at [link withheld]"), then every e-mail address written out in any form, by the typed rule
     (``watch.people.without_addresses``: "x at example.org", "x [at] example [dot] org", "X AT
     EXAMPLE.ORG", "x at example.invalid", "x аt example.org" with a Cyrillic "а"; "children at example.org"
-    keeps "children"), and a name a question kept before this rule still has before a link withheld ("x at
-    [link withheld]"); then as :func:`clean`. Run again on a text it cleaned, it changes nothing."""
+    keeps "children", "the red flag at https://…" keeps "flag": a link is never an e-mail address); then as
+    :func:`clean`. Run again on a text it cleaned, it changes nothing, but for a plain word before a link
+    withheld that names no page's part ("x at [link withheld]"): it is read as a question kept before the
+    typed rule, and goes."""
     if text is None:
         return "", 0
     before = _placeholders(" ".join(str(text).split()))
-    typed = people.without_kept_names(people.without_addresses(str(text)))
+    typed = people.without_addresses(people.without_kept_names(str(text)))
     cleaned = clean(typed, limit, names_)[0]
     return cleaned, max(0, _placeholders(cleaned) - before)
 

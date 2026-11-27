@@ -12,23 +12,25 @@ list of the people it knows, which no KM text is compared with, and nothing is a
   organisation (:func:`neurodb.km.authors.org_test`), a month, a season, a word of time, a place (a country,
   a governorate, a district or a main town; a place's name of several words of :mod:`neurodb.km.places`
   written whole: "Bab al-Tabbaneh 2024", never "Elias" alone; a town's or a district's other one-word
-  spellings, which are family names too, only after a word that writes a place: "in Saida 2023", "numbers
-  for Sayda, 2024", while "(Naameh 2021)", "Naameh (2021) found", "– Sayda, 14" and an author "Naameh, R."
-  are names; not the camps) or a common word ("(February 2023)", "(Since 2019)", "Lebanon (2020)", "(Census
-  2019)"), holds a
-  generic word of a title ("Response Plan (2020)") or is an acronym such as "FaSyR". Outside a parenthesis,
-  one name before a year ("Since 2019") is not taken for a citation.
+  spellings, which are family names too, only written as a place before a bare year, after a word that
+  writes a place, every name listed a place: "in Saida 2023", "numbers for Sayda, 2024", "in Tyre, Qana and
+  Houla 2024", while "(Naameh 2021)", "Naameh (2021) found", "in Naameh et al.", "from Akar & Doering
+  2020", "– Sayda, 14" and an author "Naameh, R." are names; not the camps) or a common word ("(February
+  2023)", "(Since 2019)", "Lebanon (2020)", "(Census 2019)"), holds a generic word of a title ("Response
+  Plan (2020)") or is an acronym such as "FaSyR". Outside a parenthesis, one name before a year ("Since
+  2019") is not taken for a citation.
 - **Interview speakers** ("… – Fakename, 34", "(Fakename, 15)") lose the first name, not a role ("(Mother,
   34)").
 - **A document's own authors** by their surname ("J. Doe interviewed", "Doe's survey", "the Doe-led
   survey") are withheld in the texts of that document.
 - **The KM Database's authors** by their full name, and names after a title ("Dr …"), anywhere.
 - **Other shapes** (:func:`_shapes`): reference lists ("Doe, J.", "Roe Poe, M. C."), "Doe 2020: …", "Roe 2021
-  (Lebanon)", a speaker at a sentence's start ("Fakename, 11, was …"), "Fakename (20, male)", "Fakename, a
-  boy", a name with an office ("Minister Jane Doe", "Jane Doe, Director of"); and, by the KM Database's
-  surnames, "Doe J", "(Doe, Lebanon)", "studies by Doe, Roe and Poe" and "[name withheld] Doe". A first name
-  left before a name withheld goes too ("Jane [name withheld]"). Words that start a sentence or a clause
-  ("However, 2021", "Overall, 2021") are never names.
+  (Lebanon)" (never an event's or a common noun's word: "Cholera 2022 (Bebnine)"), a speaker at a
+  sentence's start ("Fakename, 11, was …"), "Fakename (20, male)", "Fakename, a boy", a name with an office
+  ("Minister Jane Doe", "Jane Doe, Director of"); and, by the KM Database's surnames, "Doe J", "(Doe,
+  Lebanon)", "studies by Doe, Roe and Poe" and "[name withheld] Doe". A first name left before a name
+  withheld goes too ("Jane [name withheld]"). Words that start a sentence or a clause ("However, 2021",
+  "Overall, 2021") are never names.
 
 Downloads keep links and numbers; the assistant's texts also lose e-mail addresses, links and phone numbers.
 The broad phone pattern is never used: it would take sample sizes and years. A question typed on the Ask tab
@@ -290,13 +292,20 @@ def _covered(found: list[str]) -> bool:
 _POSSESSIVE = re.compile(r"['’]s?$")  # "Lebanon's", "Syrians'"
 
 
-# a word that writes what follows it as a place ("in Saida 2023", "numbers for Sayda, 2024", "across Qana
-# 2023"), with other places between them ("in Majdal Anjar and Saadnayel 2023", "in Tyre, Qana and Houla
-# 2024"); never "to" ("According to Naameh (2021)")
+# a word that writes what follows it as a place before a bare year ("in Saida 2023", "from Tyre and Qana
+# 2024", "across Qana 2023"), with other places between them ("in Majdal Anjar and Saadnayel 2023", "in Tyre,
+# Qana and Houla 2024"); never "to" ("According to Naameh (2021)"). Before a comma and a year, as a citation
+# writes a name ("in Naameh, 2021", "Data from Kousba, 2019"), only the words no citation is written after
+# (``_AS_PLACE_COMMA``: "numbers for Sayda, 2024")
 _AS_PLACE = re.compile(
     r"(?:^|[^\w'’\-])(?i:in|for|from|across|among|within|throughout|near|around|outside|inside)\s+"
 )
-_LISTED = re.compile(r"\s*,\s*|\s+(?:and|or|&)\s+", re.IGNORECASE)
+_AS_PLACE_COMMA = re.compile(
+    r"(?:^|[^\w'’\-])(?i:for|across|among|within|throughout|near|around|outside|inside)\s+"
+)
+_LISTED = re.compile(r"\s*,\s*(?:(?:and|or|&)\s+)?|\s+(?:and|or|&)\s+", re.IGNORECASE)
+# a list that goes on after a name ("Qana and Houla 2024" after "in Tyre, "): what follows it up to a year
+_LIST_GOES_ON = re.compile(r"[^\d.;:()\[\]]*?\s(?:and|or|&)\s", re.IGNORECASE)
 
 
 def _a_place(words: list[str]) -> bool:
@@ -307,33 +316,50 @@ def _a_place(words: list[str]) -> bool:
     )
 
 
-def _as_place(text: str, start: int, name: str) -> bool:
-    """Whether ``name``, written at ``start`` of ``text``, is a place written as one (:func:`_a_place`), after
-    the nearest word that writes a place (:data:`_AS_PLACE`), other places only between them."""
-    if not _a_place([fold(_POSSESSIVE.sub("", w)) for w in _WORDS.findall(name)]):
+def _place_words(name: str) -> list[str]:
+    return [fold(w) for w in _WORDS.findall(name)]
+
+
+def _as_place(text: str, start: int, name: str, places: re.Pattern = _AS_PLACE) -> bool:
+    """Whether ``name``, written at ``start`` of ``text``, is a place written as one (:func:`_a_place`, never
+    a possessive: "in Naameh's 2021 study"), after the nearest word that writes a place (``places``), other
+    places only between them. A list that ends with a comma there ("In Lebanon, ") is one only when it goes
+    on with "and", "or" or "&" after the name ("in Tyre, Qana and Houla 2024"): a comma after a place that
+    opens a sentence ("In Lebanon, Kousba, 2019 found") lists nothing."""
+    if _POSSESSIVE.search(name) or not _a_place(_place_words(name)):
         return False
     window = text[max(0, start - 120) : start]
-    found = list(_AS_PLACE.finditer(window))
+    found = list(places.finditer(window))
     if not found:
         return False
     between = window[found[-1].end() :]
     if not between.strip():
         return True
     parts = _LISTED.split(f" {between}")
-    return bool(_LISTED.search(between[-6:] + " ")) and all(
+    if not _LISTED.search(between[-6:] + " ") or not all(
         _a_place([fold(w) for w in _WORDS.findall(part)]) for part in parts if part.strip()
-    )
+    ):
+        return False
+    if between.rstrip().endswith(","):
+        return _LIST_GOES_ON.match(text, start + len(name), start + len(name) + 120) is not None
+    return True
 
 
-def _names(match: re.Match) -> list[tuple[int, int]]:
-    """The spans of the names of a C1-C6 match that are not kept (nor a place written as one: "in Saida
-    2023", :func:`_as_place`)."""
+def _names(match: re.Match, places: re.Pattern | None = None) -> list[tuple[int, int]]:
+    """The spans of the names of a C1-C6 match that are not kept, nor a place written as one where the
+    match's shape is a place's before a bare year (``places``, the words that write one there: C4, C5 and
+    C6's "in Saida 2023", "numbers for Sayda, 2024", "in Majdal Anjar and Saadnayel 2023", where every name
+    listed is a place: :func:`_as_place`). A citation's shape ("Naameh et al.", "Naameh (2021)", a
+    parenthesis's item) is a person's, whatever word comes before it."""
     spans = []
     found = match.groupdict()
-    for group in ("a", "b"):
-        name = found.get(group)
-        if name and not kept(name) and not _as_place(match.string, match.start(group), name):
-            spans.append(match.span(group))
+    names = [group for group in ("a", "b") if found.get(group)]
+    listed = places is not None and all(_a_place(_place_words(found[group])) for group in names)
+    for group in names:
+        name = found[group]
+        if kept(name) or (listed and _as_place(match.string, match.start(group), name, places)):
+            continue
+        spans.append(match.span(group))
     return spans
 
 
@@ -380,12 +406,13 @@ def _item(item: str, cited: set[str]) -> str:
 
 
 def _pair(match: re.Match) -> list[tuple[int, int]]:
-    """C5's two names, when neither is kept ("Fakeword and Child Development Survey 2023" is a title)."""
-    if kept(match.group("a")) or kept(match.group("b")):
-        return []
-    if _as_place(match.string, match.start("a"), match.group("a")):  # "in Tyre, Qana and Houla 2024"
-        return []
-    return [match.span("a"), match.span("b")]
+    """C5's two names, each judged on its own (:func:`_names`: "from Tyre & Doering 2020" withholds
+    "Doering", "from Akar & Doering 2020" both, "in Tyre, Qana and Houla 2024" none); none when one is kept as
+    no place ("Fakeword and Child Development Survey 2023" is a title)."""
+    for name in (match.group("a"), match.group("b")):
+        if kept(name) and not _a_place(_place_words(name)):
+            return []
+    return _names(match, _AS_PLACE)
 
 
 def _citations(text: str) -> str:
@@ -409,10 +436,10 @@ def _citations(text: str) -> str:
         text = PAREN.sub(paren, text)
         text = hold(text, [s for m in C3.finditer(text) for s in _names(m)])
     if "," in text:
-        text = hold(text, [s for m in C4.finditer(text) for s in _names(m)])
+        text = hold(text, [s for m in C4.finditer(text) for s in _names(m, _AS_PLACE_COMMA)])
     if " and " in text or "&" in text:
         text = hold(text, [s for m in C5.finditer(text) for s in _pair(m)])
-    text = hold(text, [s for m in C6.finditer(text) for s in _names(m)])
+    text = hold(text, [s for m in C6.finditer(text) for s in _names(m, _AS_PLACE)])
     return _again(text, cited)
 
 
@@ -592,6 +619,30 @@ def _not_a_name(word: str, text: str = "") -> bool:
     )
 
 
+# the events and topics a text writes before a year ("Cholera 2022 (Bebnine)", "Floods 2023 (Saida)"), and the
+# endings of a common noun ("Displacement", "Enrolment", "Readiness"): never a name before a year (S2)
+EVENT_WORDS = frozenset(
+    "cholera measles polio covid coronavirus ebola flood floods flooding earthquake earthquakes explosion "
+    "explosions blast war wars conflict conflicts crisis crises outbreak outbreaks drought droughts storm "
+    "storms fire fires wildfires election elections strike strikes protest protests uprising unrest "
+    "violence shelling airstrikes hostilities escalation ceasefire lockdown lockdowns closure closures "
+    "heatwave famine hunger inflation devaluation collapse eviction evictions returns arrivals influx "
+    "dropout attendance enrolment enrollment".split()
+)
+_NOUN_END = re.compile(r"(?:tions?|sions?|ities|ity|isms?|ics|ships?|logy)$")
+
+
+def _common_noun(word: str) -> bool:
+    """Whether ``word`` is an event's or a topic's word (:data:`EVENT_WORDS`) or has a common noun's ending
+    ("-tion", "-ity", "-ment", "-ness": "Displacement", "Readiness"; never "Clement" or "Ness")."""
+    folded = fold(_POSSESSIVE.sub("", word))
+    if folded in EVENT_WORDS:
+        return True
+    if len(folded) >= 9 and folded.endswith(("ment", "ments", "ness")):
+        return True
+    return len(folded) >= 7 and _NOUN_END.search(folded) is not None
+
+
 def _person(match: re.Match, group: str = "a") -> tuple[int, int] | None:
     """The span of a match's name without its first words that are no person's ("In Fakeword" → "Fakeword",
     "Centre Jane Doe" → "Jane Doe"), or None when nothing is left or what is left is kept."""
@@ -626,7 +677,10 @@ def _listed(text: str, people: People, found: set[str], surnames: bool) -> list[
                 found.add(m.group("a"))
     if _HAS_YEAR_STOP.search(text):
         for m in S2.finditer(text):
-            if _not_a_name(_WORDS.findall(m.group("a"))[-1]):  # a date: "Fake fieldwork May-June 2020;"
+            last = _WORDS.findall(m.group("a"))[-1]
+            # a date ("Fake fieldwork May-June 2020;"), an event or a common noun ("Cholera 2022 (Bebnine)",
+            # "Floods 2023 (Saida)", "Displacement 2024 (Saida)"): no name
+            if _not_a_name(last) or _common_noun(last):
                 continue
             place = m.group("place")
             if place is not None and not all(

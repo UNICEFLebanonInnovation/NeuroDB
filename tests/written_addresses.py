@@ -93,6 +93,21 @@ FORMS = {
     "F69 dashes, .invalid": f"{LOCAL}-at-example-dot-invalid",
     "F70 underscores": f"{LOCAL}_at_example_dot_org",
     "F71 dotted name, dot and a long ending": f"{DOTTED} at example dot online",
+    # an ending mistyped or no known one, after a plain name ("x at example.ogr", "x at example.online"): an
+    # ending of three letters or more counts, unless it is a word that goes on with a sentence ("at
+    # Halba.please")
+    "F72 a mistyped ending": f"{LOCAL} at example.ogr",
+    "F73 a mistyped ending, dot": f"{LOCAL} at example dot ogr",
+    "F74 a long ending": f"{LOCAL} at example.online",
+    "F75 a mistyped .com": f"{LOCAL} at example.con",
+    "F76 a capital, a mistyped ending": "Zfakemira at example.orf",
+    # a space after the dot before .net, .info or .de, then no word of a sentence ("x at example. net before")
+    "F77 spaced dot, .net": f"{LOCAL} at example. net",
+    "F78 spaced dot, .info": f"{LOCAL} at example. info",
+    "F79 spaced dot, .de": f"{LOCAL} at example. de",
+    "F80 @, spaced dot, .info": f"{LOCAL}@example. info",
+    "F81 @, spaced dot, a capital": f"{LOCAL}@example. Net",
+    "F82 spaced dot, a capital, .net": f"{LOCAL} at example. Net",
 }
 # What a record's or a document's text keeps by design (the record rule): a plain word before "at" and a
 # domain in capitals, of another ending or with a space after its dot ("published at Example.Org", "located
@@ -101,6 +116,9 @@ FORMS = {
 RECORD_KEEPS = (
     *("F09", "F11", "F12", "F13", "F14", "F15", "F41", "F42", "F43", "F44", "F45"),
     *("F57", "F58", "F59", "F60", "F67", "F68"),
+    # a plain word before an ending no address has in lower case ("located at Tyre.Net"), or before a space
+    # and .net, .info or .de ("at Halba. net enrolment"): only in what a person types
+    *("F72", "F74", "F75", "F76", "F77", "F78", "F79", "F82"),
 )
 RECORD_FORMS = {form: written for form, written in FORMS.items() if form[:3] not in RECORD_KEEPS}
 # a sentence a person types, and one of a record or a document
@@ -158,6 +176,14 @@ NOT_ADDRESSES = {
         "Further details on the methodology at [link withheld]."
     ),
     "Guidelines at example.org were updated.": "Guidelines at [link withheld] were updated.",
+    # a word holding a digit (a disease's, a grade's) before "at" and a sentence missing its space: no
+    # address's name ("Cases of COVID-19 at school.no classes")
+    "Cases of COVID-19 at school.no classes were held for a week.": (
+        "Cases of COVID-19 at school.no classes were held for a week."
+    ),
+    "25 children in KG2 at school.it was crowded.": "25 children in KG2 at school.it was crowded.",
+    "25 children in kg2 at halba.it was crowded.": "25 children in kg2 at halba.it was crowded.",
+    "Cases of covid19 at halba.no classes were held.": "Cases of covid19 at halba.no classes were held.",
 }
 # questions a person types that hold no address, and how they are sent: a place written with an abbreviation,
 # a sentence missing its space, a web address after a word (withheld as a link, its path too)
@@ -195,12 +221,71 @@ TYPED_NOT_ADDRESSES = {
     # a page's words before a web address, with its scheme or without
     "I get an error at neurodb.example.org/fmm/visits": "I get an error at [link withheld]",
     "what does the chart at neurodb.example.org/fmm show": "what does the chart at [link withheld] show",
+    # a link with its scheme is never an e-mail address: the word before "at" stays, the link goes as a link
+    "What does the red flag at https://neurodb.example.org/fmm/visits/12 mean?": (
+        "What does the red flag at [link withheld] mean?"
+    ),
+    "What does the score at https://neurodb.example.org/fmm/visits/12 mean?": (
+        "What does the score at [link withheld] mean?"
+    ),
+    "The page is blank at https://neurodb.example.org/fmm/visits": "The page is blank at [link withheld]",
+    "Data looks wrong at https://neurodb.example.org/fmm/visits": "Data looks wrong at [link withheld]",
+    "I am stuck at https://neurodb.example.org/fmm/visits": "I am stuck at [link withheld]",
+    "The export fails at https://neurodb.example.org/km/search.": "The export fails at [link withheld].",
+    "Which file is broken at ftp://files.example.org/fmm?": "Which file is broken at [link withheld]?",
+    # the same words before a web address with a path and no scheme
+    "What does the red flag at neurodb.example.org/fmm/visits/12 mean?": (
+        "What does the red flag at [link withheld] mean?"
+    ),
+    "The page is blank at neurodb.example.org/fmm/visits": "The page is blank at [link withheld]",
+    # a place, a full stop and a sentence that starts with a word that is also a domain's ending ("eg", "uk",
+    # "NGO", "ORG", "Invalid"): no address after a plain word
+    "How many visits at Akkar. NGO staff were present?": "How many visits at Akkar. NGO staff were present?",
+    "What were the problems at schools. eg water, latrines?": (
+        "What were the problems at schools. eg water, latrines?"
+    ),
+    "Which issues were reported at schools. eg latrines, in Akkar?": (
+        "Which issues were reported at schools. eg latrines, in Akkar?"
+    ),
+    "issues at akkar. uk funded projects only": "issues at akkar. uk funded projects only",
+    "Which projects at Halba. ORG chart missing?": "Which projects at Halba. ORG chart missing?",
+    "findings at halba. qa checks done?": "findings at halba. qa checks done?",
+    "Any visits at Akkar. Invalid entries removed?": "Any visits at Akkar. Invalid entries removed?",
+    "dropout at Tyre. fr version please": "dropout at Tyre. fr version please",
+    "dropout at Halba. Ngo staff left": "dropout at Halba. Ngo staff left",
+    "dropout at Akkar. LB 500 per child?": "dropout at Akkar. LB 500 per child?",
+    "dropout at Akkar. Com staff left": "dropout at Akkar. Com staff left",
+    "dropout at Akkar. ngo staff left": "dropout at Akkar. ngo staff left",
+    # a place, a full stop and a sentence that goes on after "net", "info" or "de" ("net enrolment")
+    "dropout at Halba. net enrolment fell": "dropout at Halba. net enrolment fell",
+    "dropout at Halba. info sessions were held?": "dropout at Halba. info sessions were held?",
+    "dropout at Tyre. de facto closures?": "dropout at Tyre. de facto closures?",
+    "dropout at Halba. info on dropout?": "dropout at Halba. info on dropout?",
+    "dropout at Halba. Info about girls?": "dropout at Halba. Info about girls?",
+    "dropout at Tyre. De facto the office moved?": "dropout at Tyre. De facto the office moved?",
+    # a sentence missing its space after a place, its next word one that goes on with a sentence
+    "what happened at saida.also show 2024": "what happened at saida.also show 2024",
+    "dropout at halba.please": "dropout at halba.please",
+    "dropout at halba.thank you": "dropout at halba.thank you",
+    "dropout at halba.next show tyre": "dropout at halba.next show tyre",
 }
-# what a person types with an address after a link's scheme: no e-mail address, but its name goes as one would
-# (an earlier question kept so is read so too: what is sent and kept is the same on every turn)
+# what a person types with an address's name before a link's scheme (a name's shape, or "at" written as no
+# sentence writes it): no e-mail address, but its name goes as one would (what is sent and kept is the same on
+# every turn)
 SCHEMED = {
-    "contact zfakemira at https://example.org": "contact [email withheld]",
-    "contact zfakemira at https://example.org/staff for the tables": "contact [email withheld] for the tables",
+    "contact zayna.fakemira at https://example.org": "contact [email withheld]",
+    "contact zfakemira2 at https://example.org/staff for the tables": (
+        "contact [email withheld] for the tables"
+    ),
+    "contact zfakemira (at) https://example.org.": "contact [email withheld].",
+}
+# a plain word before a link with its scheme: never an e-mail address, the word stays and the link goes as a
+# link (sent again, it is read as a question kept before the typed rule: "x at [link withheld]" loses "x")
+SCHEMED_KEPT = {
+    "contact zfakemira at https://example.org": "contact zfakemira at [link withheld]",
+    "contact Zfakemira at https://example.org/staff for the tables": (
+        "contact Zfakemira at [link withheld] for the tables"
+    ),
 }
 # addresses joined by a slash (a list of focal points) or before a path: each goes whole
 JOINED = (

@@ -800,15 +800,25 @@ def test_a_typed_text_loses_an_address_in_every_written_out_form():
 @pytest.mark.django_db
 def test_a_typed_text_cleaned_again_is_the_same_and_a_links_scheme_never_keeps_a_name():
     """What a person types is sent and kept the same on every turn (an earlier question is cleaned again):
-    a name before "at" and a link with its scheme goes as an address's would on the first turn too."""
+    an address's name before "at" and a link with its scheme (a name's shape, "at" written as no sentence
+    writes it) goes as an address's would on the first turn too; a plain word before such a link stays (a
+    link is never an e-mail address), the link going as a link."""
     from neurodb.assistant import privacy as ask_privacy
     from neurodb.km import privacy as km_privacy
-    from tests.written_addresses import FORMS, SCHEMED, TYPED, TYPED_NOT_ADDRESSES
+    from tests.written_addresses import FORMS, SCHEMED, SCHEMED_KEPT, TYPED, TYPED_NOT_ADDRESSES
 
     for text, sent in SCHEMED.items():
         assert people.without_addresses(text) == sent, text
         assert privacy.clean_typed(text, 1000, frozenset())[0] == sent, text
         assert ask_privacy.question(text, frozenset()) == sent, text
+        assert km_privacy.clean_question(text) == sent, text
+    for text, sent in SCHEMED_KEPT.items():
+        assert people.without_addresses(text) == sent, text
+        assert privacy.clean_typed(text, 1000, frozenset())[0] == sent, text
+        assert ask_privacy.question(text, frozenset()) == sent, text
+        assert km_privacy.clean_question(text) == sent, text
+        # sent again, as a question kept before the typed rule ("x at [link withheld]"): its name goes
+        assert people.EMAIL_WITHHELD in privacy.clean_typed(sent, 1000, frozenset())[0], text
     schemed = [
         "explain the chart at https://neurodb.example.org/fmm/",
         "the map at http://example.org/fmm/map",
@@ -816,7 +826,6 @@ def test_a_typed_text_cleaned_again_is_the_same_and_a_links_scheme_never_keeps_a
     for text in [*SCHEMED, *schemed, *TYPED_NOT_ADDRESSES, *(TYPED.format(w) for w in FORMS.values())]:
         once = privacy.clean_typed(text, 1000, frozenset())[0]
         assert privacy.clean_typed(once, 1000, frozenset())[0] == once, text
-    assert "zfakemira" not in km_privacy.clean_question("contact zfakemira at https://example.org")
     assert privacy.clean_typed(schemed[0], 1000, frozenset())[0] == "explain the chart at [link withheld]"
 
 

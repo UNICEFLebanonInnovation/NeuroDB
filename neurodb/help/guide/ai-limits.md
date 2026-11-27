@@ -63,10 +63,15 @@ address.
   at sign and "dot", in capitals, with any ending, with spaces around the dot (also a capital your phone
   puts after it: "x at example. Org"), with letters that only look like "at" or a dot (styled, circled or
   from another alphabet) or with characters nobody sees; the word before "at" and a web address goes too,
-  unless it names no one ("children at [link withheld]", "the dashboard at [link withheld]"). A sentence
-  missing its space after a place ("at Halba.please") or a time before "at" ("9.30am at halba.we met") is
-  no address and stays. Your earlier questions are cleaned so again each time they are sent, and come out
-  the same. In notes, answers and action point
+  unless it names no one ("children at [link withheld]", "the dashboard at [link withheld]"). A link
+  written with "https://" is never an e-mail address: the word before it stays ("the red flag at [link
+  withheld]") unless it is shaped like an address's name ("x.y at https://…"). A mistyped ending ("x at
+  example.ogr", "x at example.con") goes like any other. A sentence missing its space after a place ("at
+  Halba.please"), a sentence after a place and ". " ("at schools. eg water", "at Akkar. NGO staff", "at
+  Halba. net enrolment") or a time before "at" ("9.30am at halba.we met") is no address and stays. Your
+  earlier questions are cleaned so again each time they are sent, and come out the same (in Chat with Data
+  and the Help assistant, a plain word before a link with "https://" goes then, unless it names no one). In
+  notes, answers and action point
   texts, an address goes whole when it is written with "dot", in brackets or dashes, with an at sign, in
   capitals with AT, or with a common ending in lower case after any word but a common one; after a plain
   word, a site's address in capitals, of another ending or with a space after its dot is taken as a link

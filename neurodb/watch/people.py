@@ -431,32 +431,45 @@ _SEPARATOR = rf"(?:\.|\s\.|{_DOMAIN_DOT})"  # a full stop, after a space too ("e
 # after a dot and a space ("x at example. org", "x at example. net. lb", "x at example. Org" as a phone's
 # keyboard writes it): the endings of a domain that no sentence starts with in lower case ("at Halba. net
 # enrolment", "at Halba. info sessions", "at Halba. de facto" stay), and the few that none starts with
-# capitalised either ("at Halba. Net enrolment", "at Tyre. De facto", "at Akkar. Gov staff" stay)
+# capitalised either ("at Halba. Net enrolment", "at Tyre. De facto", "at Akkar. Gov staff" stay). Those a
+# sentence may start with (``SPACED_STARTERS``: "at schools. eg water", "at akkar. uk funded", "at Akkar. NGO
+# staff", "at Halba. ORG chart") count only after an address's name (:func:`shaped`) or an "at" no sentence
+# writes. ".net", ".info" and ".de" (``weak``: "at Halba. net enrolment", "at Halba. info sessions", "at
+# Tyre. de facto" stay) count in what a person types after a word that names someone, when no word of the
+# sentence follows them ("x at example. net before June", "x at example. Net before June"), and in any text
+# after an address's name or an "at" no sentence writes ("x@example. info", "x@example. Net")
 _SPACED_LOWER = "org|com|gov|edu|int|lb|fr|uk|ch|ae|qa|jo|eg|nl|au|io|ngo|biz|invalid"
 _SPACED_CAPITAL = "|".join(f"{e.capitalize()}|{e.upper()}" for e in ("org", "com", "lb", "ngo", "invalid"))
 _SPACED_ANY = f"{_SPACED_LOWER}|{_SPACED_CAPITAL}"
+SPACED_STARTERS = frozenset(
+    {"eg", "qa", "uk", "fr", "ngo", "Ngo", "NGO", "Invalid", "INVALID", "LB", "Com", "ORG"}
+)
+_WEAK = "net|info|de"
 WRITTEN_AT = re.compile(
     rf"(?<![\w.+'-]){_LOCAL_PART}(?P<at>{_AT_ANY})"
     rf"(?P<domain>(?=[\w-]*[^\W\d_])[\w-]+(?:{_SEPARATOR}[\w-]+)*{_SEPARATOR}[^\W\d_]{{2,24}}(?![\w-])"
-    rf"|[\w-]+(?:\.\s?[\w-]+)*?\.\s(?-i:{_SPACED_ANY})\b)",
+    rf"|[\w-]+(?:\.\s?[\w-]+)*?\.\s(?-i:{_SPACED_ANY})\b"
+    rf"|(?P<weak>[\w-]+(?:\.\s?[\w-]+)*?\.\s(?:{_WEAK}))\b)",
     re.IGNORECASE,
 )
 # what :data:`WRITTEN_AT` needs, besides "at": a dot right before letters, or before a space and an ending, or
 # a dot spelled out (most texts have none: "at school", "at 45.5%", "at home. The")
 DOTTED = re.compile(
-    rf"\.(?:[^\W\d_]{{2}}|\s(?:{_SPACED_LOWER})\b)|\b(?:dot|period)\b|_dot_"
+    rf"\.(?:[^\W\d_]{{2}}|\s(?:{_SPACED_LOWER}|{_WEAK})\b)|\b(?:dot|period)\b|_dot_"
     r"|[\[({<'\"\u2018\u2019\u201c\u201d*/]\s*(?:dot|period|\.)\s*[\])}>'\"\u2018\u2019\u201c\u201d*/]",
     re.IGNORECASE,
 )
 _LABEL_SEP = re.compile(rf"\s?\.\s?|{_DOMAIN_DOT}", re.IGNORECASE)  # between the labels of a domain
 _PLAIN_DOT = re.compile(r"\s?\.\s?")
+_SPACED_SEP = re.compile(r"\s?\.\s")  # a full stop and a space after it ("example. eg")
 _PLAIN_AT = re.compile(r"\s+at\s+", re.IGNORECASE)  # "at" as a sentence writes it
 _PLAIN_WORD_AT = re.compile(r"([^\W\d_]+)(\s+at\s+)", re.IGNORECASE)  # one plain word and "at"
 # the endings of a domain in any case ("Example.Org", "EXAMPLE.ORG", "example.INVALID"); any other only in
 # lower case and when it is no word of a sentence ("at school.it was", "at Halba.We met", "AT SITE.NO
 # ISSUES", "at Mt.Lebanon" stay; a country's that is one, "x.y at example.it", in a record's text only after
-# a name with a full stop, "_" or "+"), nor a file's ("annex.pdf"); after a dot spelled out, of three letters
-# at most ("x at example dot sy"; "the dot plot" stays)
+# a name with a full stop, "_" or "+", or of letters then digits: "x2 at example.it", :func:`_record_shaped`),
+# nor a file's ("annex.pdf"); after a dot spelled out, of three letters at most ("x at example dot sy"; "the
+# dot plot" stays)
 KNOWN_ENDINGS = frozenset(_ENDINGS.split("|")) | {"co", "invalid", "test", "example", "mil", "app", "dev"}
 NOT_ENDINGS = frozenset(
     {"pdf", "doc", "docx", "xls", "xlsx", "csv", "txt", "ppt", "pptx", "jpg", "jpeg", "png", "gif", "zip"}
@@ -478,6 +491,15 @@ LINK_WORDS = frozenset(
     | {"accessed", "retrieved", "downloaded", "viewed", "obtained", "archived", "advertised", "us", "point"}
     | {"methodology", "guidelines", "statistics", "results", "report", "reports", "survey", "study", "annex"}
     | {"chart", "charts", "map", "maps", "table", "tables", "graph", "error", "errors", "export", "section"}
+    # what a question says of a page before its address ("the red flag at", "the page is blank at", "I am
+    # stuck at", "the export fails at")
+    | {"flag", "flags", "score", "scores", "blank", "empty", "wrong", "stuck", "fails", "failed", "failing"}
+    | {"broken", "missing", "slow", "crash", "crashes", "crashed", "button", "buttons", "filter", "filters"}
+    | {"tab", "tabs", "column", "columns", "row", "rows", "number", "numbers", "figure", "figures", "value"}
+    | {"values", "total", "totals", "count", "counts", "icon", "icons", "warning", "warnings", "message"}
+    | {"messages", "screen", "screens", "view", "views", "list", "lists", "menu", "field", "fields", "box"}
+    | {"label", "labels", "legend", "card", "cards", "panel", "line", "lines", "bar", "bars", "problem"}
+    | {"problems", "issue", "issues", "bug", "bugs", "mistake", "mistakes", "shown", "showing", "look"}
 )
 KEEPS = ORDINARY | LINK_WORDS
 # letters and marks that look like those of an address in what a person types ("ａｔ", "example．org", the
@@ -509,22 +531,44 @@ LOOKALIKES = str.maketrans(
 )
 # a dot that looks like a full stop between two letters of what a person types ("example·org", "example∙org")
 _LOOKALIKE_DOT = re.compile(r"(?<=\w)[·∙⋅۔](?=\w)")
-# a time, an ordinal, a measure, an item's number written with a full stop, a quarter, a grade or a round
-# before "at" ("9.30am at halba.we met", "9am at halba.no delays", "Visit no.2 at akkar.we", "q3 at akkar.it
-# will"): no address's name
+# a time, an ordinal, a measure, an item's number written with a full stop, a quarter, a grade, a round or
+# "COVID-19" before "at" ("9.30am at halba.we met", "9am at halba.no delays", "Visit no.2 at akkar.we", "q3 at
+# akkar.it will", "KG2 at school.it was"): no address's name
 _NOT_A_NAME = re.compile(
     r"\d{1,2}(?:[.:h]\d{2})?(?:[ap]\.?m\.?|h|hrs?)|\d{1,2}[.:]\d{2}"  # "9.30am", "9am", "14h30", "10.15"
     r"|\d+(?:st|nd|rd|th|km|kms|kg|cm|mm|ml|usd|lbp|hours|mins|days|yrs|years|x)"  # "2nd", "15km", "3x"
     r"|(?:no|nb|nr|num|vol|pp?|ch|art|sec|fig|tab|item|ref)\.\d{1,4}[a-z]?"
-    r"|(?:q|h|s|t|w|p|r|g|grade|level|phase|round|cycle|wave|week|day|class|room|block|unit|site|zone|sector"
-    r"|area|lot|batch|group|team|tent|ward|step|stage|module|session|annex|section|part|year|term)\d{1,3}[a-z]?",
+    r"|(?:q|h|s|t|w|p|r|g|kg|eb|grade|level|phase|round|cycle|wave|week|day|class|room|block|unit|site|zone"
+    r"|sector|area|lot|batch|group|team|tent|ward|step|stage|module|session|annex|section|part|year|term)"
+    r"\d{1,3}[a-z]?|covid-?19",  # "KG2", "EB6" (grades), "COVID-19"
     re.IGNORECASE,
 )
-# chat words a sentence missing its space may end with ("at akkar.ok"): never a country's ending
-_CHAT = frozenset({"ok", "hi", "ty", "np", "yo"})
-# a name and "at" before a link written with its scheme, in what a person types ("x at https://example.org"):
-# its name goes as an address's would, so that the question is the same when it is cleaned again
-_AT_SCHEME = re.compile(rf"(?<![\w.+'-]){_LOCAL_PART}(?P<at>{_AT_ANY})(?:https?|ftp)://\S*", re.IGNORECASE)
+# the chat's and a request's words a sentence missing its space after a place goes on with ("at akkar.ok", "at
+# Halba.please list them", "at zahle.thanks", "at saida.compare with 2024"): never a domain's ending after a
+# plain word (the common words of a sentence, ``ORDINARY``, never are either)
+GOES_ON = frozenset(
+    {"ok", "hi", "ty", "np", "yo", "okay", "please", "pls", "plz", "thanks", "thank", "thx", "tnx", "merci"}
+    | {"shukran", "sorry", "yes", "yeah", "yep", "nope", "hello", "next", "btw", "lol", "compare", "show"}
+    | {"list", "give", "tell", "display", "explain", "summarise", "summarize", "find", "see", "check", "sort"}
+    | {"include", "exclude", "add", "remove", "break", "split", "rank", "plot", "chart", "send", "need"}
+    | {"want", "les", "des", "une", "svp", "plus", "same", "kindly", "what", "how", "why", "which", "who"}
+    | {"cheers", "great", "perfect", "nice", "good", "cool", "regards", "bye", "maybe", "since", "last"}
+    | {"today", "make", "count", "total", "number", "numbers", "anything", "everything", "something"}
+    | {"nothing", "especially", "particularly", "mainly", "mostly", "even", "still", "yet", "already"}
+    | {"really", "actually", "otherwise", "instead", "else"}
+)
+# the words after ". net", ". info" or ". de" that go on with no sentence of them ("x at example. net before
+# June", "x at example. info for the data"): the common words of a sentence that are no noun, but those that
+# go on with one ("info on", "info about", "net of")
+_AFTER_WEAK = (ENGLISH_STOP | GOES_ON | {"asap"}) - {"on", "about", "of", "in", "from", "at", "s", "t"}
+_AFTER_WEAK_END = re.compile(r"\s*(?:$|[.,;:!?)\]}/\"'\u2019\u201d]|(\w+))")
+# a word and "at" before a link written with its scheme, in what a person types ("x at https://example.org"):
+# a link is never an e-mail address, so the word stays and the link goes as a link, but an address's name
+# (:func:`shaped`) or a word before an "at" no sentence writes goes as an address's would
+_AT_SCHEME = re.compile(
+    rf"(?<![\w.+'-]){_LOCAL_PART}(?P<at>{_AT_ANY})(?:https?|ftp)://(?:[^\s<>\"]*[^\s<>\".,;:!?)'*\]])?",
+    re.IGNORECASE,
+)
 # a question kept before the typed rule, whose address lost only its domain (as a link): its name is still
 # written before "at" ("x at [link withheld]", "x(at)[link withheld]")
 _BEFORE_LINK_WITHHELD = re.compile(
@@ -550,6 +594,19 @@ def shaped(local: str) -> bool:
     return bool(re.search(r"[._+\d]", local)) and not _NOT_A_NAME.fullmatch(local)
 
 
+def _record_shaped(local: str) -> bool:
+    """Whether ``local`` makes a word of a sentence of two letters ("it", "no") a domain's ending in a
+    record's text: a full stop, "_" or "+" inside, or letters then digits not all capitals ("zfakemira2 at
+    example.it"), but no time, item's number or grade ("Visit no.2 at akkar.we", "KG2 at school.it was",
+    "COVID-19 at school.no classes")."""
+    if _NOT_A_NAME.fullmatch(local):
+        return False
+    if re.search(r"[._+]", local):
+        return True
+    letters = re.fullmatch(r"([^\W\d_]+)\d+", local)
+    return bool(letters) and not letters.group(1).isupper()
+
+
 def named(local: str, at: str, typed: bool) -> bool:
     """Whether ``local``, the word before "at" (``at``) and a domain, is an address's name: it has a name's
     shape (:func:`shaped`), it and "AT" are in capitals ("X AT EXAMPLE.ORG"), or "at" is written as no
@@ -563,10 +620,11 @@ def named(local: str, at: str, typed: bool) -> bool:
 
 def _ending(label: str, spelled: bool, shaped: bool, plain: bool = False, labels: int = 1) -> bool:
     """Whether ``label`` ends a domain as an address's does (:data:`KNOWN_ENDINGS`, see there); ``shaped``:
-    in what a person typed, or after a name's shape (:func:`shaped`), "at" written as no sentence writes it
-    too. ``plain``: in what a person typed, after a plain word and "at" ("at Halba.please", "at zahle.thanks"
-    stay): an ending that is no known one, nor a word of two letters, only of two letters ("x at
-    example.sy"), or after two labels or more (``labels``: "x at mail.example.zz")."""
+    in what a person typed, or after a name's shape (:func:`_record_shaped`), "at" written as no sentence
+    writes it too. ``plain``: in what a person typed, after a plain word and "at": an ending that is no known
+    one counts ("x at example.sy", "x at example.ogr", "x at example.online"), but a word a sentence missing
+    its space goes on with after one label (:data:`GOES_ON`: "at Halba.please", "at zahle.thanks", "at
+    akkar.ok" stay; after two labels or more, ``labels``, it counts: "x at mail.example.ok")."""
     if not re.fullmatch(r"[^\W\d_]{2,24}", label):
         return False
     folded = fold(label)
@@ -576,7 +634,7 @@ def _ending(label: str, spelled: bool, shaped: bool, plain: bool = False, labels
         return False
     if folded in ORDINARY:
         return shaped and len(label) == 2
-    if plain and labels < 2 and (len(label) != 2 or folded in _CHAT):
+    if plain and labels < 2 and folded in GOES_ON:
         return False
     return not spelled or len(label) <= 3 or (shaped and not plain)
 
@@ -586,15 +644,20 @@ def _spelled(domain: str) -> bool:
     return any(not _PLAIN_DOT.fullmatch(sep.group()) for sep in _LABEL_SEP.finditer(domain))
 
 
-def _domain_end(domain: str, shaped: bool = False, plain: bool = False) -> int:
+def _domain_end(domain: str, shaped: bool = False, plain: bool = False, name_like: bool = True) -> int:
     """Where the domain an address may have ends in ``domain`` (a :data:`WRITTEN_AT` match's): after the last
     label that ends one (:func:`_ending`, ``shaped`` and ``plain`` its; "example.org.It" ends after "org"),
-    and when a dot is spelled out, no label is a word of a sentence ("the dot plot"); 0 when none does."""
+    and when a dot is spelled out, no label is a word of a sentence ("the dot plot"); 0 when none does. After
+    a dot and a space, an ending a sentence may start with (:data:`SPACED_STARTERS`: "at schools. eg water")
+    counts only after an address's name or an "at" no sentence writes (``name_like``)."""
     seps = list(_LABEL_SEP.finditer(domain))
     for i in range(len(seps) - 1, -1, -1):
         stop = seps[i + 1].start() if i + 1 < len(seps) else len(domain)
         spelled = _spelled(domain[:stop])
-        if not _ending(domain[seps[i].end() : stop], spelled, shaped, plain, labels=i + 1):
+        label = domain[seps[i].end() : stop]
+        if not name_like and label in SPACED_STARTERS and _SPACED_SEP.fullmatch(seps[i].group()):
+            continue
+        if not _ending(label, spelled, shaped, plain, labels=i + 1):
             continue
         starts = [0, *(sep.end() for sep in seps[:i])]
         labels = [domain[a : sep.start()] for a, sep in zip(starts, seps[: i + 1], strict=True)]
@@ -625,7 +688,11 @@ def written_out(match: re.Match, typed: bool = False, links: bool = True) -> str
     domain, local, at = match.group("domain"), match.group("local"), match.group("at")
     plain_at = bool(_PLAIN_AT.fullmatch(at))
     name_like = shaped(local) or not plain_at
-    end = _domain_end(domain, shaped=typed or name_like, plain=typed and not name_like)
+    if match.group("weak") and not name_like and not _weak_address(match, typed):
+        return match.group(0)
+    record_shaped = _record_shaped(local) or not plain_at
+    plain = typed and not name_like
+    end = _domain_end(domain, shaped=typed or record_shaped, plain=plain, name_like=name_like)
     if not end:
         return match.group(0)
     rest = domain[end:]
@@ -635,6 +702,18 @@ def written_out(match: re.Match, typed: bool = False, links: bool = True) -> str
     if spelled or named(local, at, typed):
         return f"{EMAIL_WITHHELD}{rest}"
     return match.group(0)
+
+
+def _weak_address(match: re.Match, typed: bool) -> bool:
+    """Whether a :data:`WRITTEN_AT` match that ends with a dot, a space and ".net", ".info" or ".de" after a
+    plain word ("x at example. net") is an address: in what a person typed (``typed``), after a word that
+    names someone (:func:`keeps`), with no word of the sentence after it (the text's end, a punctuation mark
+    or a word of :data:`_AFTER_WEAK`: "x at example. net before June", "x at example. Net before June"; "at
+    Halba. net enrolment", "at Tyre. De facto", "at Halba. info on dropout" stay)."""
+    if not typed or keeps(match.group("local")):
+        return False
+    after = _AFTER_WEAK_END.match(match.string, match.end())
+    return bool(after) and (after.group(1) is None or fold(after.group(1)) in _AFTER_WEAK)
 
 
 def without_paths(text: str) -> str:
@@ -676,10 +755,14 @@ def without_addresses(text: str) -> str:
 
 
 def _schemed(match: re.Match) -> str:
-    """A name and "at" before a link with its scheme in what a person typed (:data:`_AT_SCHEME`): withheld
-    as an address's name would be (:func:`without_kept_names` reads the link withheld so); a word that names
-    no one stays, the link left to the link rule."""
-    return EMAIL_WITHHELD if named(match.group("local"), match.group("at"), True) else match.group(0)
+    """A word and "at" before a link with its scheme in what a person typed (:data:`_AT_SCHEME`): a link is
+    never an e-mail address, so the word stays and the link is withheld as a link ("the red flag at [link
+    withheld]"); an address's name (:func:`shaped`) or a word before an "at" no sentence writes goes with it
+    as an address's would."""
+    local, at = match.group("local"), match.group("at")
+    if shaped(local) or not _PLAIN_AT.fullmatch(at):
+        return EMAIL_WITHHELD
+    return f"{local}{at}{LINK_WITHHELD}"
 
 
 def withheld_address(text: str) -> bool:
