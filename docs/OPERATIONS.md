@@ -1606,12 +1606,18 @@ strongest; `neurodb.km.columns.CONFIDENCE_A_STRONGEST` turns on the colours once
   elsewhere in that text), interview speakers ("– Fakename, 34", "Fakename, 11, was", "Fakename (20, male)",
   "Fakename, a boy", "“…,” said Fakename, 14.", "“…,” Fakename, 14, explained", "In an interview, Fakename,
   14,", "interview with Fakename, 14"; never a role: "said Mother, 34"), reference lists ("Doe, J.", "Roe Poe,
-  M. C."; "Doe J" and "Doe J. Fake title" for a KM author), "Doe 2020:" and "Doe 2020 (Lebanon)" or "Doe 2021
+  M. C."; "Doe J" and "Doe J. Fake title" for a KM author; written the Vancouver way with two authors or more
+  in a text with a year, "Doe J, Roe PM. Fake title. 2019.", whatever the authors: `S1V`, never a word that is
+  no name, "Grade A, Grade B."), "Doe 2020:" and "Doe 2020 (Lebanon)" or "Doe 2021
   (Bebnine)" (never an event's or a topic's word or a common noun in the plural: "Cholera 2022 (Bebnine)",
   "Floods 2023 (Saida)", "Displacement 2024 (Saida)" stay; a singular word with a common noun's ending or an
   event's word that is a family name too only when it is a common word or the text also writes it in lower
   case: "Blankenship 2021 (Lebanon)", "Holderness 2020:", "Storm 2021 (Lebanon)" go), a KM author's surname in
-  "(Doe, Lebanon)" or "studies by Doe, Roe and Poe" (with the other names of that list), a name with an office
+  "(Doe, Lebanon)" or "studies by Doe, Roe and Poe" (with the other names of that list; a name already
+  withheld there, the document's own author, counts as one: "studies by Roe, Poe and [name withheld]"), every
+  name listed with commas before "Roe and Poe (2019)" or "Roe and Poe 2019 found" ("Doe, Roe and Poe (2019)",
+  "Doe, Roe, and Poe (2019)"; a place that opens the sentence ends the list: "In Saida, Kousba (2019)"), a
+  name with an office
   ("Minister Jane Doe", "Jane Doe, Director of"), a KM author's surname after a name withheld and a first name
   before one, the document's own authors by surname (also joined to digits or "_" anywhere in a word,
   "LCRP_Doe_2019", "survey_doe", or before a hyphen and digits, "Doe-2019"), the KM authors' full names and
@@ -1691,11 +1697,16 @@ asked). In order:
    two words before it: "As also noted in Naameh 2021"; also the earlier one's when a list goes on from a
    source: "reported for Naameh, 2021 and for Akar, 2020"), a source's verb after its year ("In Lebanon, Akar
    and Naameh 2020 found", "Girls in Naameh 2021 reported"; "Numbers for Sayda, 2024 show a rise" stays), a
-   parenthesis ("(for Naameh, 2021)"), each name of a pair judged on its own, without a request's word or
-   "In" before it ("Show Beirut and Tyre 2023", "In Chtoura and Zahle 2023" keep every word), a place kept
-   wherever it is written making the other a place ("What about Saida and Tyre 2023?", "What about Majdal
-   Anjar and Tyre 2023?"; "Akar and Tyre 2020 found" withholds "Akar"; "from Tyre and Qana 2024" keeps
-   both; "&" joins a
+   parenthesis ("(for Naameh, 2021)"), each name of a pair judged on its own ("and" or "&": an
+   organisation or a place kept wherever it is written stays, the other name goes unless it is itself a place
+   written as one: "UNICEF & Vantrell 2020" keeps "UNICEF"; "Said" or "Tell" is a name's word there, "Said
+   Vantrell and Zorgwell 2020" goes whole; a pair is one of places only when a word that writes a place comes
+   before it and every name of it is a place: "from Tyre and Qana 2024", "In Tyre and Qana 2023" keep both,
+   "What about Saida and Tyre 2023?", "Visits to Chtoura and Tyre 2023", "Edited by Houla and Tyre 2021", "A
+   paper by Naameh and Jordan 2020" withhold the town's other spelling; "Akar and Tyre 2020 found" withholds
+   "Akar"; a connective that opens the sentence, "However", or a word that writes a place before a name kept,
+   "In Tyre", is no name's word; a title stays whole with "and": "the Fakeword and Child Development Survey
+   2023"; "&" joins a
    citation's authors, never places: "from Akar & Naameh 2020" and "Numbers for Akar & Naameh, 2020" withhold
    both, "from Tyre & Doering 2020" "Doering"); a place's name of several words in a source's form ("Jabal
    Mohsen et al.", "Jabal Mohsen (2020) found", "Deir Ammar (2019) reported") is a name there too, a place
@@ -1708,12 +1719,23 @@ asked). In order:
    was collected in Sayda 2021"; "Children were enrolled in Saida 2023" stays), any verb and "that", or ","
    "which" and a verb, after the year ("Families from Houla 2021 adds that", "in Qana 2021, which found"), a
    list with a year after each name ("Rates in Akar 2016, Naameh 2018 and Kousba 2019 rose": every name goes,
-   unless every other one is a place kept wherever it is written: "in Saida 2023 and Tyre 2024"), an
+   unless every other one is a place kept wherever it is written: "in Saida 2023 and Tyre 2024"; a name
+   already withheld in it makes it a list of sources), an
    interview's speaker "– Sayda, 14", "(Houla, 15)", "“…,” said Naameh,
    16", "In an interview with Sayda, 14,", and a document's own author "Naameh, R." (its surname is withheld
-   in that document's texts). The typed text is searched (never an address in it, written out or not, by the
-   same rule), never kept or sent. The questions sent (and earlier questions of the conversation) are checked
-   again for a surname in any case.
+   in that document's texts). In the question only (`privacy.typed_for_ai`), a name before a bare year after
+   "did", "does", "By", "according to" or "per" is a citation's ("What did Quenby 2019 say?"; an event's or a
+   topic's word stays, as before a year elsewhere: "How did Covid 2020 change enrolment?"), and a request's verb
+   that opens it or one of its sentences before a capitalised word (`REQUEST_VERBS`: "Show", "Compare",
+   "Summarise", "Describe", "Map", ...; never "Tell": "Tell Abbas" is a town) is read apart from the name
+   after it when the question then names no one, kept in lower case where the rule would otherwise read it
+   with that name ("show Beirut and Tyre 2023"), so that a record's rule, the final check and a download's
+   About sheet read the kept question the same way; when a name is withheld, the verb is read as any word
+   ("Show Quenvell and Tyre 2023" → "[name withheld] and Tyre 2023"). These words are never kept as no name
+   elsewhere: they are family names too ("Rank et al. (2019)", "List, Q. (2019)", "See & Quenby 2021" go).
+   The typed text is searched (never an address in it, written out or not, by the same rule), never kept or
+   sent. The questions sent (and earlier questions of the conversation) are checked again for a surname in
+   any case.
 2. The filters it reads within are those of the tab's address (the Findings tab's filter, carried by the
    tab link, or *Ask about its document*): known keys only, never the search box's words, the sort or the
    page size.
