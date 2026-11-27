@@ -526,3 +526,21 @@ def test_a_towns_spelling_written_as_a_citation_is_never_downloaded(client_viewe
     assert b"Doering" not in _xlsx_text(body)
     about = dict(_sheets(body)["About"][1:])
     assert about["Filter"] == "Search: (your words are not written here: one of them names an author)"
+
+
+def test_a_towns_spelling_cited_with_a_lettered_year_or_a_page_is_never_downloaded(client_viewer):
+    """A town's one-word spelling cited with a year that carries a letter ("2021a"), a page after the year or
+    a citing word before "in" ("As reported in"): never downloaded, nor written as the question's words."""
+    from neurodb.km import privacy
+
+    edits = {
+        ("findings", 2, "Key Finding"): "As reported in Naameh 2021a, 30% of fake girls married early.",
+        ("findings", 3, "Finding Analysis"): "Fees rose, as noted in Akar 2020, p. 4, for fake families.",
+    }
+    factory.load(factory.workbook(documents=1, findings=3, edits=edits))
+    _, body = _get(client_viewer, export="csv")
+    assert b"Naameh" not in body and b"Akar" not in body
+    for question in ("What is reported in Naameh 2021a about dropout?", "What is reported in Akar 2020?"):
+        assert not exports.search_words_safe(question, privacy.NOBODY), question
+        assert "Naameh" not in exports.question_words(question, privacy.NOBODY)
+        assert "Akar" not in exports.question_words(question, privacy.NOBODY)

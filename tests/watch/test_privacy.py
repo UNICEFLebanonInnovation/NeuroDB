@@ -624,3 +624,25 @@ def test_a_typed_text_keeps_its_places_and_takes_a_web_address_whole():
 
     for text, sent in TYPED_NOT_ADDRESSES.items():
         assert people.without_addresses(text) == sent, text
+
+
+def test_a_typed_text_loses_an_address_by_what_follows_it_or_writes_to_it():
+    """What a person types: after a dot and a space, ".net" or ".fr" ends an address when the text ends, a
+    mark or a word that follows an address comes after it, or a word that writes to one ("contact") comes
+    before its name; a common word's ending (".school") or a chat's (".show") does too."""
+    from tests.written_addresses import TYPED_ADDRESSES, TYPED_NOT_ADDRESSES
+
+    found = {text: people.without_addresses(text) for text in TYPED_ADDRESSES}
+    assert found == TYPED_ADDRESSES
+    for text, sent in TYPED_NOT_ADDRESSES.items():  # what it holds no address of is sent the same each turn
+        assert people.without_addresses(people.without_kept_names(sent)) == sent, text
+
+
+def test_a_record_text_loses_an_address_with_a_digit_capitals_or_before_a_links_scheme():
+    """A record's text: a name holding a digit anywhere, "AT" in capitals before a word of two letters, an
+    address's name before a link with its scheme, an at sign before a dot and a space at the text's end."""
+    from tests.written_addresses import RECORD_ADDRESSES
+
+    for text, sent in RECORD_ADDRESSES.items():
+        assert people.without_emails(text) == sent, text
+        assert redact.text(text, 500, frozenset()) == sent, text

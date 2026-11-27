@@ -66,11 +66,12 @@ LINE_CHARS = 300
 LINK_WITHHELD = people.LINK_WITHHELD  # "[link withheld]"
 # A bare domain needs a name with a letter in it and a top-level domain: one of three letters or more in
 # any case ("UNICEF.ORG", "4children.org/2024"), one of two letters in lower case or before a "/", so that
-# a sentence missing its space ("soon.To", "approx.US", "1.To") is not taken for a link
+# a sentence missing its space ("soon.To", "approx.US", "1.To") is not taken for a link; a scheme defanged as
+# a security note writes it ("hxxps://example[.]org") is a link's too
 _TLD3 = r"com|org|net|int|gov|edu|info|biz|app"
 _TLD2 = r"io|co|lb|uk|fr|ch|us|me|ai|ly|gl|to"
 LINK = re.compile(
-    r"\b(?:https?|ftp|mailto|javascript):\S*|\bwww\.\S+"
+    r"\b(?:h[tx]{2}ps?|ftp|mailto|javascript):\S*|\bwww\.\S+"
     rf"|\b(?=[\w-]*[^\W\d_])[\w-]+(?:\.[\w-]+)*\.(?:(?:{_TLD3})|(?-i:{_TLD2})|(?:{_TLD2})(?=/))\b(?:/\S*)?",
     re.IGNORECASE,
 )

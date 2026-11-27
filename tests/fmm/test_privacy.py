@@ -790,6 +790,11 @@ def test_a_typed_text_loses_an_address_in_every_written_out_form():
 
     for text, sent in TYPED_NOT_ADDRESSES.items():
         assert privacy.clean_typed(text, 1000, frozenset())[0] == sent, text
+    from tests.written_addresses import TYPED_ADDRESSES
+
+    for text, sent in TYPED_ADDRESSES.items():
+        assert privacy.clean_typed(text, 1000, frozenset())[0] == sent, text
+        assert privacy.clean_typed(sent, 1000, frozenset())[0] == sent, text
     for text in JOINED:
         assert not left(privacy.clean_typed(text, 1000, frozenset())[0]), text
     assert privacy.clean_typed("Where is the guidance at [link withheld]?", 100, frozenset())[0] == (
@@ -859,6 +864,10 @@ def test_a_record_text_loses_a_written_out_address_and_keeps_its_sentences():
     for text, sent in NOT_ADDRESSES.items():
         assert privacy.clean(text, 1000, frozenset())[0] == sent, text
         privacy.assert_clean({"text": sent}, frozenset())
+    from tests.written_addresses import RECORD_ADDRESSES
+
+    for text, sent in RECORD_ADDRESSES.items():
+        assert privacy.clean(text, 1000, frozenset())[0] == sent, text
     # addresses joined by a slash, or before a path: each goes whole, and the last check stops them
     from tests.written_addresses import JOINED, left
 

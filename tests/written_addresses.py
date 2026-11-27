@@ -108,6 +108,22 @@ FORMS = {
     "F80 @, spaced dot, .info": f"{LOCAL}@example. info",
     "F81 @, spaced dot, a capital": f"{LOCAL}@example. Net",
     "F82 spaced dot, a capital, .net": f"{LOCAL} at example. Net",
+    # an ending that is also a word a chat goes on with (".today", ".show", ".plus", ".cool", ".lol", ".np"):
+    # an address's after a plain name, unless a word of the sentence follows ("at akkar.show me by district")
+    "F83 .today": f"{LOCAL} at example.today",
+    "F84 .show": f"{LOCAL} at example.show",
+    "F85 .plus": f"{LOCAL} at example.plus",
+    "F86 .cool": f"{LOCAL} at example.cool",
+    "F87 .lol": f"{LOCAL} at example.lol",
+    "F88 .np": f"{LOCAL} at example.np",
+    # an ending a sentence may start with after a dot and a space ("x at hotmail. fr"), a common word's ending
+    # (".school", ".health"), a digit inside the name or "AT" in capitals before a word of two letters
+    "F89 spaced dot, a starter": f"{LOCAL} at example. fr",
+    "F90 a common word's ending": f"{LOCAL} at example.school",
+    "F91 a digit inside the name, .it": "z2fakemira at example.it",
+    "F92 capitals, .it": "ZFAKEMIRA AT example.it",
+    "F93 capitals, .IT": "ZFAKEMIRA AT EXAMPLE.IT",
+    "F94 letters then digits in capitals, .be": "ZFAKEMIRA2 at example.be",
 }
 # What a record's or a document's text keeps by design (the record rule): a plain word before "at" and a
 # domain in capitals, of another ending or with a space after its dot ("published at Example.Org", "located
@@ -119,6 +135,7 @@ RECORD_KEEPS = (
     # a plain word before an ending no address has in lower case ("located at Tyre.Net"), or before a space
     # and .net, .info or .de ("at Halba. net enrolment"): only in what a person types
     *("F72", "F74", "F75", "F76", "F77", "F78", "F79", "F82"),
+    *("F83", "F84", "F85", "F86", "F87", "F88", "F89", "F90"),
 )
 RECORD_FORMS = {form: written for form, written in FORMS.items() if form[:3] not in RECORD_KEEPS}
 # a sentence a person types, and one of a record or a document
@@ -184,6 +201,36 @@ NOT_ADDRESSES = {
     "25 children in KG2 at school.it was crowded.": "25 children in KG2 at school.it was crowded.",
     "25 children in kg2 at halba.it was crowded.": "25 children in kg2 at halba.it was crowded.",
     "Cases of covid19 at halba.no classes were held.": "Cases of covid19 at halba.no classes were held.",
+    # a class, a disease, a saint's school or an at sign with a space before a place, a full stop and a
+    # sentence that starts with "Info", "Net", "NGO", "eg" or "uk": no address
+    "Training @ Halba. Info session to follow.": "Training @ Halba. Info session to follow.",
+    "Meeting @ Zahle. Net enrolment was discussed.": "Meeting @ Zahle. Net enrolment was discussed.",
+    "Students from St.Joseph at Tyre. Info sessions were held.": (
+        "Students from St.Joseph at Tyre. Info sessions were held."
+    ),
+    "Students of 9B at Halba. Info sessions were held for parents.": (
+        "Students of 9B at Halba. Info sessions were held for parents."
+    ),
+    "Cases of H1N1 at school. Info sessions were held.": "Cases of H1N1 at school. Info sessions were held.",
+    "Visit @ Akkar. NGO staff were present.": "Visit @ Akkar. NGO staff were present.",
+    "Visit @ school. eg water and latrines were checked.": "Visit @ school. eg water and latrines were checked.",
+    "Distribution @ Akkar. uk funded kits arrived.": "Distribution @ Akkar. uk funded kits arrived.",
+    "Class 4B at Tyre. Info sessions for parents were held.": (
+        "Class 4B at Tyre. Info sessions for parents were held."
+    ),
+    "Training @ CERD. Info packs were distributed.": "Training @ CERD. Info packs were distributed.",
+    "Session @ school. Net enrolment rose by 5%.": "Session @ school. Net enrolment rose by 5%.",
+    "Students of Grade 9B at Halba. NGO staff ran the session.": (
+        "Students of Grade 9B at Halba. NGO staff ran the session."
+    ),
+    "Children from St.Elias at Zahle. NGO volunteers helped.": (
+        "Children from St.Elias at Zahle. NGO volunteers helped."
+    ),
+    "Meeting @ Halba. NGO partners attended.": "Meeting @ Halba. NGO partners attended.",
+    "Students in room-2 at school.it was hot.": "Students in room-2 at school.it was hot.",
+    "Cases of h1n1 at school.no classes were held.": "Cases of h1n1 at school.no classes were held.",
+    # a version before a link with its scheme: no address's name
+    "Release v2.0 at https://example.org is out.": "Release v2.0 at [link withheld] is out.",
 }
 # questions a person types that hold no address, and how they are sent: a place written with an abbreviation,
 # a sentence missing its space, a web address after a word (withheld as a link, its path too)
@@ -268,6 +315,106 @@ TYPED_NOT_ADDRESSES = {
     "dropout at halba.please": "dropout at halba.please",
     "dropout at halba.thank you": "dropout at halba.thank you",
     "dropout at halba.next show tyre": "dropout at halba.next show tyre",
+    # a measure of education before "at", a place, a full stop and "Net", "Info" or "De" that a sentence goes
+    # on with, or ends with: no address
+    "What was the enrolment at Halba. Net or gross?": "What was the enrolment at Halba. Net or gross?",
+    "enrolment at Tyre. Net for girls": "enrolment at Tyre. Net for girls",
+    "Show enrolment at Halba. Net only": "Show enrolment at Halba. Net only",
+    "Show enrolment at Halba. net please": "Show enrolment at Halba. net please",
+    "What is the dropout at Akkar. Info please": "What is the dropout at Akkar. Info please",
+    "Was there a distribution at Tyre. Info is missing": "Was there a distribution at Tyre. Info is missing",
+    "enrolment at Tyre. Net by grade": "enrolment at Tyre. Net by grade",
+    "enrolment at Tyre. Net and gross": "enrolment at Tyre. Net and gross",
+    "What was attendance at Zahle. Net or gross?": "What was attendance at Zahle. Net or gross?",
+    "Enrolment rates at Saida. Net and gross, please.": "Enrolment rates at Saida. Net and gross, please.",
+    "Enrollment at Saida. Net or gross?": "Enrollment at Saida. Net or gross?",
+    "Rates at Halba. Net please": "Rates at Halba. Net please",
+    "Show net enrolment at Halba. Net is higher than gross?": (
+        "Show net enrolment at Halba. Net is higher than gross?"
+    ),
+    "Enrolment at Halba. Net?": "Enrolment at Halba. Net?",
+    "Enrolment at Halba. Net.": "Enrolment at Halba. Net.",
+    "What is the enrolment at Halba. Net": "What is the enrolment at Halba. Net",
+    "What was the GER at Halba. Net or gross?": "What was the GER at Halba. Net or gross?",
+    "Which schools at Halba. Net only?": "Which schools at Halba. Net only?",
+    # a class, a saint's school or an at sign with a space before a place and a sentence: no address
+    "Students from St.Joseph at Tyre. Info sessions were held?": (
+        "Students from St.Joseph at Tyre. Info sessions were held?"
+    ),
+    "Class 4B at Tyre. Info sessions for parents?": "Class 4B at Tyre. Info sessions for parents?",
+    "Meeting @ Halba. NGO partners attended?": "Meeting @ Halba. NGO partners attended?",
+    # a place written with an abbreviation in lower case, or two places joined by a full stop, after "at": no
+    # address and no link
+    "How many visits at mt.lebanon had red flags?": "How many visits at mt.lebanon had red flags?",
+    "any red flags at st.elias school?": "any red flags at st.elias school?",
+    "visits at st.george hospital": "visits at st.george hospital",
+    "red flags at akkar.district wise please": "red flags at akkar.district wise please",
+    "enrolment at mt.lebanon schools": "enrolment at mt.lebanon schools",
+    "attendance at st.charbel school 2024": "attendance at st.charbel school 2024",
+    "how many visits at st.joseph school had red flags?": "how many visits at st.joseph school had red flags?",
+    "red flags at mar.elias camp": "red flags at mar.elias camp",
+    "how many students at mt.lebanon schools dropped out?": (
+        "how many students at mt.lebanon schools dropped out?"
+    ),
+    "visits at halba.bekaa next": "visits at halba.bekaa next",
+    "red flags at saida.tyre too": "red flags at saida.tyre too",
+    "how many visits at tripoli.halba": "how many visits at tripoli.halba",
+    # a page's words before a link with its scheme stay, on the first turn and when the question is sent again
+    "The map hangs at https://neurodb.example.org/fmm/visits": "The map hangs at [link withheld]",
+    "The page freezes at https://neurodb.example.org/fmm/visits": "The page freezes at [link withheld]",
+    "What does the red flag mean at https://neurodb.example.org/fmm/visits/12": (
+        "What does the red flag mean at [link withheld]"
+    ),
+}
+# what a person types that holds an address, and how it is sent: a word after the domain that follows an
+# address ("before", "thanks"), the end of the text or a mark, or a word before the name that writes to one
+# ("contact", "write to")
+TYPED_ADDRESSES = {
+    "contact zfakemira at example. net - thanks": "contact [email withheld] - thanks",
+    "contact zfakemira at example. net (work)": "contact [email withheld] (work)",
+    "contact zfakemira at example. net & thanks": "contact [email withheld] & thanks",
+    "contact zfakemira at example. net about the data": "contact [email withheld] about the data",
+    "contact zfakemira at example. info on Monday": "contact [email withheld] on Monday",
+    "write to Zfakemira at hotmail. fr": "write to [email withheld]",
+    "write to zfakemira at example. uk before June": "write to [email withheld] before June",
+    "write to zfakemira at example. eg": "write to [email withheld]",
+    "zfakemira at example. NGO": "[email withheld]",
+    "contact Zfakemira at hotmail. fr please": "contact [email withheld] please",
+    "contact zfakemira at example.health before June": "contact [email withheld] before June",
+    "contact zfakemira at example.foundation before June": "contact [email withheld] before June",
+    "email zfakemira at example.school": "email [email withheld]",
+    "zfakemira at example.show before June": "[email withheld] before June",
+    "Contact: MHADDAD AT example.it": "Contact: [email withheld]",
+    "Write to ZFAKEMIRA AT example.it for the annex.": "Write to [email withheld] for the annex.",
+    "mira-2 at example.it": "[email withheld]",
+    "contact z.fakemira at hxxps://example.org": "contact [email withheld]",
+    "contact zfakemira2 at hxxps://example.org": "contact [email withheld]",
+}
+# what a record's or a document's text holds that is an address, and how it is sent: a name holding a digit
+# anywhere, letters then digits in capitals, "AT" in capitals before a word of two letters, an address's name
+# before a link with its scheme
+RECORD_ADDRESSES = {
+    "For questions write to m2haddad at example.it.": "For questions write to [email withheld].",
+    "Fake survey: 2zfakemira at example.me holds the files.": "Fake survey: [email withheld] holds the files.",
+    "Fake survey: z2fakemira at example.no holds the files.": "Fake survey: [email withheld] holds the files.",
+    "Write to mira-2 at example.it for the annex.": "Write to [email withheld] for the annex.",
+    "Write to MHADDAD2 at example.it for the annex.": "Write to [email withheld] for the annex.",
+    "Contact: MHADDAD AT example.it": "Contact: [email withheld]",
+    "Write to ZFAKEMIRA AT example.it for the annex.": "Write to [email withheld] for the annex.",
+    "Contact: MIRA AT EXAMPLE.IT": "Contact: [email withheld]",
+    "Contact: MIRA2 AT example.be.": "Contact: [email withheld].",
+    "For the data, write to zayna.fakemira at https://example.org before June.": (
+        "For the data, write to [email withheld] before June."
+    ),
+    "Contact zfakemira2 at https://example.org/contact for the forms.": (
+        "Contact [email withheld] for the forms."
+    ),
+    "Zayna.Fakemira at https://www.example.org/staff": "[email withheld]",
+    "For the data, write to zayna.fakemira (at) https://example.org before June.": (
+        "For the data, write to [email withheld] before June."
+    ),
+    "Fake notes: zfakemira @ example. info": "Fake notes: [email withheld]",
+    "Fake notes: zayna.fakemira at example. info sessions": "Fake notes: [email withheld] sessions",
 }
 # what a person types with an address's name before a link's scheme (a name's shape, or "at" written as no
 # sentence writes it): no e-mail address, but its name goes as one would (what is sent and kept is the same on

@@ -303,6 +303,14 @@ _AS_PLACE = re.compile(
 _AS_PLACE_COMMA = re.compile(
     r"(?:^|[^\w'’\-])(?i:for|across|among|within|throughout|near|around|outside|inside)\s+"
 )
+# a citation's words right before that word ("As reported in Naameh 2021", "(cited in Akar 2018)", "Findings
+# in Akar 2016 show"): what follows is a source, never a place
+_CITED_BEFORE = re.compile(
+    r"\b(?i:as|see|cf\.?|reported|noted|shown|cited|described|discussed|documented|presented|stated|quoted"
+    r"|summari[sz]ed|reviewed|published|argued|highlighted|outlined|findings|evidence|research)[\s,]*$"
+)
+# a year with a letter ("2021a") or a page after it ("2021, p. 12", "2019, pp. 4-5"): only a citation's
+_CITED_YEAR = re.compile(rf"(?:{ET_AL})?,?\s+(?:19|20)\d\d(?:[a-z]\b|\s*,\s*pp?\.)")
 _LISTED = re.compile(r"\s*,\s*(?:(?:and|or|&)\s+)?|\s+(?:and|or|&)\s+", re.IGNORECASE)
 # a list that goes on after a name ("Qana and Houla 2024" after "in Tyre, "): what follows it up to a year
 _LIST_GOES_ON = re.compile(r"[^\d.;:()\[\]]*?\s(?:and|or|&)\s", re.IGNORECASE)
@@ -325,12 +333,13 @@ def _as_place(text: str, start: int, name: str, places: re.Pattern = _AS_PLACE) 
     a possessive: "in Naameh's 2021 study"), after the nearest word that writes a place (``places``), other
     places only between them. A list that ends with a comma there ("In Lebanon, ") is one only when it goes
     on with "and", "or" or "&" after the name ("in Tyre, Qana and Houla 2024"): a comma after a place that
-    opens a sentence ("In Lebanon, Kousba, 2019 found") lists nothing."""
+    opens a sentence ("In Lebanon, Kousba, 2019 found") lists nothing. A citation's word before that word
+    (:data:`_CITED_BEFORE`: "As reported in Naameh 2021", "(cited in Akar 2018)") writes a source."""
     if _POSSESSIVE.search(name) or not _a_place(_place_words(name)):
         return False
     window = text[max(0, start - 120) : start]
     found = list(places.finditer(window))
-    if not found:
+    if not found or _CITED_BEFORE.search(window, 0, found[-1].start() + 1):
         return False
     between = window[found[-1].end() :]
     if not between.strip():
@@ -350,11 +359,16 @@ def _names(match: re.Match, places: re.Pattern | None = None) -> list[tuple[int,
     match's shape is a place's before a bare year (``places``, the words that write one there: C4, C5 and
     C6's "in Saida 2023", "numbers for Sayda, 2024", "in Majdal Anjar and Saadnayel 2023", where every name
     listed is a place: :func:`_as_place`). A citation's shape ("Naameh et al.", "Naameh (2021)", a
-    parenthesis's item) is a person's, whatever word comes before it."""
+    parenthesis's item, a year with a letter or a page after it: "in Naameh 2021a", "in Naameh 2021, p. 12")
+    is a person's, whatever word comes before it."""
     spans = []
     found = match.groupdict()
     names = [group for group in ("a", "b") if found.get(group)]
-    listed = places is not None and all(_a_place(_place_words(found[group])) for group in names)
+    listed = (
+        places is not None
+        and all(_a_place(_place_words(found[group])) for group in names)
+        and not _CITED_YEAR.match(match.string, match.end())
+    )
     for group in names:
         name = found[group]
         if kept(name) or (listed and _as_place(match.string, match.start(group), name, places)):

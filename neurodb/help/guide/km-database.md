@@ -200,7 +200,8 @@ download the findings it read.
   (citations, reference lists, people quoted, people named with their job) are written "[name withheld]".
   A town's name that is also a family name ("Saida", "Naameh") is kept as a place only before a year after
   "in", "for" or "from" ("in Saida 2023", "numbers for Sayda, 2024", "in Tyre, Qana and Houla 2024");
-  written as a citation ("Naameh (2021)", "Naameh et al.", "from Akar & Doering 2020") it is a name.
+  written as a citation ("Naameh (2021)", "Naameh et al.", "from Akar & Doering 2020", "As reported in
+  Naameh 2021", "in Naameh 2021a", "in Naameh 2021, p. 12") it is a name.
   An e-mail address is taken out whole, also when it is written out with "at" and "dot" in words, with
   dashes or in brackets ("x [ at ] example [ dot ] org", "x -at- example -dot- org"), in your question and
   in the downloads; in your question also any name before "at" and a web address, in capitals or not, while a

@@ -701,3 +701,10 @@ def test_addresses_joined_by_a_slash_or_before_a_path_go_whole_in_ask_and_the_ra
 
     for text_, sent_ in TYPED_NOT_ADDRESSES.items():  # a question that holds no address is sent as typed
         assert privacy.question(text_, frozenset()) == sent_, text_
+    from tests.written_addresses import RECORD_ADDRESSES, TYPED_ADDRESSES
+
+    for text_, sent_ in TYPED_ADDRESSES.items():
+        assert privacy.question(text_, frozenset()) == sent_, text_
+        assert help_assistant.clean(text_, 1000, frozenset()) == sent_, text_
+    for text_, sent_ in RECORD_ADDRESSES.items():
+        assert privacy.text(text_, frozenset()) == sent_, text_

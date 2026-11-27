@@ -518,6 +518,38 @@ def test_the_address_rule_is_neurodbs_shared_one():
         assert people.withhold_addresses(text) == text
 
 
+def test_a_km_text_loses_an_address_with_a_digit_capitals_or_before_a_links_scheme():
+    """A KM text, sent to the AI and downloaded: a name holding a digit anywhere ("z2fakemira", "mira-2"),
+    letters then digits in capitals ("MHADDAD2"), "AT" in capitals before a word of two letters ("MIRA AT
+    example.it", "MIRA AT EXAMPLE.IT" at the end), an address's name before a link with its scheme."""
+    from tests.written_addresses import NOT_ADDRESSES, RECORD_ADDRESSES
+
+    for text, sent in RECORD_ADDRESSES.items():
+        assert privacy.for_ai(text) == sent, text
+        assert privacy.for_download(text) == sent, text
+    for text, sent in NOT_ADDRESSES.items():  # a sentence that only looks like one is downloaded as it is
+        if sent == text:
+            assert privacy.for_download(text) == text, text
+
+
+@pytest.mark.django_db
+def test_a_km_question_keeps_what_holds_no_address_and_loses_what_does(monkeypatch):
+    """Ask the KM Database: the question as it is kept and sent, and its search words."""
+    from neurodb.km import ask
+    from tests.written_addresses import TYPED_ADDRESSES, TYPED_NOT_ADDRESSES, left
+
+    for text, sent in TYPED_NOT_ADDRESSES.items():
+        assert privacy.clean_question(text) == sent, text
+    as_typed = [text for text, sent in TYPED_NOT_ADDRESSES.items() if text == sent]
+    searched = {text: ask._searchable(text) for text in as_typed}
+    with monkeypatch.context() as patched:  # the search words, as they would be without the address rule
+        patched.setattr(privacy, "without_addresses", lambda text: text)
+        assert searched == {text: ask._searchable(text) for text in as_typed}
+    for text, sent in TYPED_ADDRESSES.items():
+        assert privacy.clean_question(text) == sent, text
+        assert not left(ask._searchable(text)), text
+
+
 # ------------------------------------------------------- a person's name that is also a town's (places.py)
 TOWN_NAMES = (
     "Naameh (2021) found that 12% of girls married before 18.",
@@ -585,6 +617,19 @@ TOWN_CITED = (
     ("For girls in Akkar, Akar (2019) reports higher dropout.", ("Akar ",)),
     ("In Saida, Naameh (2021) found that 40% of children were out of school.", ("Naameh",)),
     ("In Lebanon, Kousba, 2019 found that 40% of children worked.", ("Kousba",)),
+    # a year with a letter, a page after the year, a citing word before "in", "for" or "from"
+    ("As reported in Naameh 2021a, 12% of girls married before 18.", ("Naameh",)),
+    ("As reported in Naameh 2021, p. 12, most girls married before 18.", ("Naameh",)),
+    ("As noted in Naameh 2021, 12% of girls married before 18.", ("Naameh",)),
+    ("Key finding: As reported in Naameh 2021a, 30% of fake girls married early.", ("Naameh",)),
+    ("Fake data (cited in Akar 2018) show dropout.", ("Akar",)),
+    ("Fake data (as cited in Akar 2018) show dropout.", ("Akar",)),
+    ("as cited in Akar 2018, teachers lacked training.", ("Akar",)),
+    ("Findings in Akar 2016 show that teachers lacked training.", ("Akar",)),
+    ("as described in Akar 2016a, teachers lacked training.", ("Akar",)),
+    ("Fake rates rose, as shown in Kousba 2019b.", ("Kousba",)),
+    ("Dropout rose in Naameh 2019, pp. 4-5, for girls.", ("Naameh",)),
+    ("Child labour rose (in Naameh 2019a).", ("Naameh",)),
 )
 
 
@@ -617,6 +662,10 @@ def test_a_towns_spelling_written_as_a_citation_is_a_name(text, names):
         "What is reported in Naameh (2021) about dropout?",
         "What did findings from Akar & Doering 2020 say about girls who married early?",
         "In Lebanon, Kousba (2019) found what?",
+        "What is reported in Akar 2020 about school fees?",
+        "What is reported in Naameh 2021a about dropout?",
+        "As noted in Naameh 2021, how many girls married?",
+        "What does the study in Akar 2021, p. 4, say?",
     ],
 )
 def test_a_question_loses_a_towns_spelling_written_as_a_citation(asked):
