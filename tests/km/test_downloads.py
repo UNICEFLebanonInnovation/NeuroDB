@@ -562,3 +562,22 @@ def test_a_source_a_speaker_and_an_address_whose_ending_is_a_word_are_never_down
     for name in (b"Naameh", b"Fakedoe", b"Fakename", b"Saad Nayel", b"fakeharb", b"Example.No"):
         assert name not in body, name
     assert b"fakeharb" not in _xlsx_text(_get(client_viewer, export="xlsx")[1]).lower()
+
+
+@pytest.mark.django_db
+def test_a_requests_word_cited_as_a_name_is_never_written_on_the_about_sheet():
+    """A request's word that is a family name too ("Rank", "List", "See") in a citation's shape: the question
+    and the search words are not written; a typed request before places is written as it was kept."""
+    from neurodb.km import privacy
+
+    for question in (
+        "Rank et al. (2019) found high dropout.",
+        "List, Q. (2019). Dropout in Lebanon.",
+        "See & Quenby 2021 reported high dropout.",
+        "UNICEF & Morvane 2020 found high dropout.",
+    ):
+        assert not exports.search_words_safe(question, privacy.NOBODY), question
+        assert exports.question_words(question, privacy.NOBODY) == str(exports.words.QUESTION_NOT_WRITTEN)
+    for typed in ("Show Beirut and Tyre 2023", "Compare Akkar and Tripoli 2023"):
+        kept = privacy.clean_question(typed)
+        assert exports.question_words(kept, privacy.NOBODY) == kept, typed
