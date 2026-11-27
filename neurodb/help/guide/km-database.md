@@ -218,8 +218,10 @@ download the findings it read.
   Fieldwork 2023", "Data: Interviews 2023"), but never after "by" or in a pair of authors ("A paper by Brevet
   and Quenby 2020" loses both). Your question also loses a name before a year after "did", "does" or "By"
   ("What did Quenby 2019 say?"). A request's verb that opens your question ("Show", "Compare", "Summarise",
-  "Describe", "Map") is no name before places and is kept in lower case ("show Beirut and Tyre 2023"), but only
-  when your question then names no one; elsewhere these words are family names too ("Rank et al. (2019)",
+  "Describe", "Map") is no name before places and a bare year and is kept in lower case ("show Beirut and Tyre
+  2023"), but only when your question then names no one; before a citation ("Summarise Tyre et al. (2020)",
+  "Summarize French, Q. (2019)"), "&", or a place that is also a person's name ("Show Jordan and Tyre 2023"),
+  it is read with the name, which goes; elsewhere these words are family names too ("Rank et al. (2019)",
   "List, Q. (2019)", "See & Quenby 2021" lose them). An e-mail address is taken out whole, also when it is written
   out with "at" and "dot" in words, with dashes or in brackets ("x [ at ] example [ dot ] org", "x -at-
   example -dot- org"), in your question and in the downloads; in your question also any name before "at" and a

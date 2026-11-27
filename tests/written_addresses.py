@@ -291,18 +291,13 @@ NOT_ADDRESSES = {
     "ALP1 at school.it was closed for repairs.": "ALP1 at school.it was closed for repairs.",
     "Grade CE1 at Zahle.no books were delivered.": "Grade CE1 at Zahle.no books were delivered.",
     "LCRP2023 at akkar.no changes were needed.": "LCRP2023 at akkar.no changes were needed.",
-    # (converge round 3) an acronym after a determiner, or before a town of the KM Database's places, then a
-    # full stop, a space and a sentence that starts with "Info", "Net" or "NGO": no address
-    "We met the NGO at Bebnine. Info sessions followed.": "We met the NGO at Bebnine. Info sessions followed.",
-    "Kits were delivered by the NGO at Chtaura. Info sessions were held the next day.": "Kits were delivered by the NGO at Chtaura. Info sessions were held the next day.",
-    "The SMC at Bebnine. Info on dropout was shared.": "The SMC at Bebnine. Info on dropout was shared.",
-    "Training for the PTA at Minyara. NGO staff attended.": "Training for the PTA at Minyara. NGO staff attended.",
-    "The CSO at Minyara. Net enrolment is low.": "The CSO at Minyara. Net enrolment is low.",
-    "We met the NGO at Bebnine. Info: 40 kits were delivered.": "We met the NGO at Bebnine. Info: 40 kits were delivered.",
-    "The PTA at Kfarhabou. Net enrolment rose.": "The PTA at Kfarhabou. Net enrolment rose.",
-    # a page's word after "to the" is a page, not a mailbox: the link rule takes its domain
+    # a page's word after a verb that goes to a page and "to the" is a page, not a mailbox: the link rule takes
+    # its domain
     "How do I submit my report to the portal at example.org?": "How do I submit my report to the portal at [link withheld]?",
-    "Reply to the survey at example.org before June": "Reply to the survey at [link withheld] before June",
+    # (final review) a plain word in lower case before a place's name written capitalised, a full stop, a
+    # space and a sentence
+    "Teachers trained at Hammana. Net enrolment rose after that?": "Teachers trained at Hammana. Net enrolment rose after that?",
+    "Classes resumed at Zouk. Org chart updated, who approved it?": "Classes resumed at Zouk. Org chart updated, who approved it?",
 }
 # a word that names no one before "at" and a domain of an ending the link rule does not know (".ngo", ".de",
 # ".jo"): the domain goes as a link in a record's text too, the words stay
@@ -536,25 +531,26 @@ TYPED_NOT_ADDRESSES = {
     "Compare Halba at akkar.ok": "Compare Halba at akkar.ok",
     "Compare Tyre at halba.It was higher?": "Compare Tyre at halba.It was higher?",
     # (converge round 3) a place, a time of day or a word that names no one before a full stop, a space and a
-    # sentence that starts with "Org", "Lb", "Info" or "Net"; an acronym after a determiner or before a town
-    # of the KM Database's places; a page's word after "to the"
+    # sentence that starts with "Org", "Lb", "Info" or "Net"; a page's word after a verb that goes to a page
+    # and "to the"
     "Kits were delivered at Tyre. Lb of rice each.": "Kits were delivered at Tyre. Lb of rice each.",
     "Volunteers worked at night. Org staff helped.": "Volunteers worked at night. Org staff helped.",
     "Meeting held at Halba. Org chart shared with partners.": "Meeting held at Halba. Org chart shared with partners.",
     "Monitoring at Halba. Net enrolment rose": "Monitoring at Halba. Net enrolment rose",
     "What is the status at Halba. Info sessions were held?": "What is the status at Halba. Info sessions were held?",
-    "We met the NGO at Bebnine. Info sessions followed.": "We met the NGO at Bebnine. Info sessions followed.",
-    "Kits were delivered by the NGO at Chtaura. Info sessions were held the next day.": "Kits were delivered by the NGO at Chtaura. Info sessions were held the next day.",
-    "The SMC at Bebnine. Info on dropout was shared.": "The SMC at Bebnine. Info on dropout was shared.",
-    "Training for the PTA at Minyara. NGO staff attended.": "Training for the PTA at Minyara. NGO staff attended.",
-    "The CSO at Minyara. Net enrolment is low.": "The CSO at Minyara. Net enrolment is low.",
-    "We met the NGO at Bebnine. Info: 40 kits were delivered.": "We met the NGO at Bebnine. Info: 40 kits were delivered.",
-    "The PTA at Kfarhabou. Net enrolment rose.": "The PTA at Kfarhabou. Net enrolment rose.",
-    "We trained the Directorate at Bebnine. Info sessions followed.": "We trained the Directorate at Bebnine. Info sessions followed.",
     "How do I submit my report to the portal at example.org?": "How do I submit my report to the portal at [link withheld]?",
     "How do I return to the dashboard at example.org?": "How do I return to the dashboard at [link withheld]?",
-    "Reply to the survey at example.org before June": "Reply to the survey at [link withheld] before June",
     "Teachers report to the platform at example.org every week.": "Teachers report to the platform at [link withheld] every week.",
+    # (final review) a plain word in lower case before a place's name written capitalised, a full stop, a
+    # space and a sentence that goes on: no address, as d1b90c8 read it
+    "Teachers trained at Hammana. Net enrolment rose after that?": "Teachers trained at Hammana. Net enrolment rose after that?",
+    "Children returned at Wardaniyeh. Net enrolment rose by 5%.": "Children returned at Wardaniyeh. Net enrolment rose by 5%.",
+    "Classes resumed at Zouk. Org chart updated, who approved it?": "Classes resumed at Zouk. Org chart updated, who approved it?",
+    "Kits arrived at Deir. Info sessions followed. How many children attended?": "Kits arrived at Deir. Info sessions followed. How many children attended?",
+    "Volunteers worked at Wardaniyeh. Net enrolment rose there?": "Volunteers worked at Wardaniyeh. Net enrolment rose there?",
+    "Teachers trained at Bebnine. Net enrolment rose after that?": "Teachers trained at Bebnine. Net enrolment rose after that?",
+    "Teachers were trained at Hammana. Net enrolment rose after that?": "Teachers were trained at Hammana. Net enrolment rose after that?",
+    "We arrived at the point eg the school gate": "We arrived at the point eg the school gate",
 }
 # what a person types that holds an address, and how it is sent: a word after the domain that follows an
 # address ("before", "thanks"), the end of the text or a mark, or a word before the name that writes to one
@@ -927,6 +923,86 @@ RECORD_ADDRESSES = {
     "zfakemira at health point org": "[email withheld]",
     "zayna.fakemira at info point example point org": "[email withheld]",
     "zfakemira at the point example point org": "[email withheld]",
+}
+# (final review) what a person types that a commit of the chain withheld and the merged rules kept, and how
+# it is sent, privacy first: a word in capitals before "at", a place's name and a capitalised ending after a
+# dot and a space reads as an address's name, an acronym too ("Staff of ZQXA at Bebnine. Info" reads as "HADDAD
+# at Bebnine. Info"); no determiner makes a name a thing ("Our Rania at example. Org replied"); "point" after
+# "the" before a domain's ending, and after a word written to or named an address, is a dot ("Write to Rania
+# at the point org", "Contact monitoring at health point org"); every item of a list of addresses goes, its
+# first written with a dot and a space too; a mailbox written to at a place's domain before ". Org"; a page's
+# word after a verb that mails is a mailbox ("Please email the report to the dashboard at ..."); a capitalised
+# word before a place's first word written short and glued ("Met Rania at St.Joseph.")
+FINAL_TYPED = {
+    "Met Rania HADDAD at Bebnine. Info sessions followed.": "Met Rania [email withheld] sessions followed.",
+    "Rania HADDAD at Bebnine. Org chart updated.": "Rania [email withheld] chart updated.",
+    "The team met HADDAD at Mt. Lebanon. Info sessions followed.": "The team met [email withheld] sessions followed.",
+    "ZFAKEMIRA at Bebnine. Info sessions followed.": "[email withheld] sessions followed.",
+    "Meeting with KHALIL at Tebnine. Net enrolment rose.": "Meeting with [email withheld] enrolment rose.",
+    "Spoke with Mira SAAB at Minyara. Info sessions were held.": "Spoke with Mira [email withheld] sessions were held.",
+    "NASSAR at Amchit. Info: the kits": "[email withheld]: the kits",
+    "ZAYNA AT BEBNINE. INFO SESSIONS FOLLOWED.": "[email withheld] SESSIONS FOLLOWED.",
+    "Staff of ZQXA at Bebnine. Info sessions were held.": "Staff of [email withheld] sessions were held.",
+    "Met RHADDAD at Mt. Lebanon. Org chart updated.": "Met [email withheld] chart updated.",
+    "Zayna at Mt. Example. Org": "[email withheld]",
+    "Met Rania at Mt. Example. Org chart updated.": "Met [email withheld] chart updated.",
+    "We met the NGO at Bebnine. Info sessions followed.": "We met the [email withheld] sessions followed.",
+    "The PTA at Kfarhabou. Net enrolment rose.": "The [email withheld] enrolment rose.",
+    "We trained the Directorate at Bebnine. Info sessions followed.": "We trained the [email withheld] sessions followed.",
+    "Our Rania at example. Org replied.": "Our [email withheld] replied.",
+    "Please thank our Rania at example. Info for the files.": "Please thank our [email withheld] for the files.",
+    "Their Haddad at example. Info replied.": "Their [email withheld] replied.",
+    "our ZAYNA at example. Info replied": "our [email withheld] replied",
+    "Our Zayna at example. Lb replied.": "Our [email withheld] replied.",
+    "Write to Rania at the point org": "Write to [email withheld]",
+    "Her email is zayna at the point org": "Her email is [email withheld]",
+    "cc Zayna at this point org before June": "cc [email withheld] before June",
+    "Rania at the point org has the files": "[email withheld] has the files",
+    "Contact monitoring at health point org": "Contact [email withheld]",
+    "To: data at education point gov point lb": "To: [email withheld]",
+    "Please email registration at health point org for the forms": "Please email [email withheld] for the forms",
+    "To: rania at example. org, monitoring at example.org": "To: [email withheld], [email withheld]",
+    "Contact Rania (rania at example. org) or monitoring at example.org": "Contact Rania ([email withheld]) or [email withheld]",
+    "The focal points are RHADDAD at Bebnine. Info and monitoring at example.org": "The focal points are [email withheld] and [email withheld]",
+    "Contacts: partners at example. Org, monitoring at example. Org": "Contacts: [email withheld], [email withheld]",
+    "zfakemira at example. org, registration at example. org": "[email withheld], [email withheld]",
+    "registration at example.org / Zayna at example. Org": "[email withheld] / [email withheld]",
+    "cc monitoring at example.org and the portal at example.org": "cc [email withheld] and the [email withheld]",
+    "Write to the school at Minyara. Org for the files.": "Write to the [email withheld] for the files.",
+    "Please email the office at Chtaura. Org for the list.": "Please email the [email withheld] for the list.",
+    "Send it to the site at zfakemira. org": "Send it to the [email withheld]",
+    "Please email the report to the dashboard at example.org": "Please email the report to the [email withheld]",
+    "Forward it to the tool at example.org": "Forward it to the [email withheld]",
+    "Reply to the survey at example.org before June": "Reply to the [email withheld] before June",
+    "Submit the form to the portal at zfakemira. org before June": "Submit the form to the [email withheld] before June",
+    "Email it to the Zayna Fakemira portal at example.org": "Email it to the Zayna Fakemira [email withheld]",
+    "Met Rania at St.Joseph. Org chart updated.": "Met [email withheld]. Org chart updated.",
+    "Met Rania at St.Joseph. Then left.": "Met [email withheld]. Then left.",
+    "Met Rania at St. Joseph. Org chart updated.": "Met [email withheld] chart updated.",
+    "Rank Zayna at example. Org by year": "Rank [email withheld] by year",
+}
+# (final review) a record's or a document's text, and how every record path sends it: the same rules, and a
+# capitalised word before a domain whose words name no place and no sentence writes, then ". Org", ". Lb",
+# ". Info" or ". Net" ("Rank Zayna at example. Org by year")
+FINAL_RECORD = {
+    "Met Rania HADDAD at Bebnine. Info sessions followed.": "Met Rania [email withheld] sessions followed.",
+    "The team met HADDAD at Mt. Lebanon. Info sessions followed.": "The team met [email withheld] sessions followed.",
+    "Staff of ZQXA at Bebnine. Info sessions were held.": "Staff of [email withheld] sessions were held.",
+    "We met the NGO at Bebnine. Info sessions followed.": "We met the [email withheld] sessions followed.",
+    "our ZAYNA at example. Info replied": "our [email withheld] replied",
+    "Write to Rania at the point org": "Write to [email withheld]",
+    "Contact monitoring at health point org": "Contact [email withheld]",
+    "To: rania at example. org, monitoring at example.org": "To: [email withheld], [email withheld]",
+    "Recipients: data at example. Org, registration at example. Org": "Recipients: [email withheld], [email withheld]",
+    "To: monitoring at example. Org, Zayna at example. Org": "To: [email withheld], [email withheld]",
+    "Please email the office at Chtaura. Org for the list.": "Please email the [email withheld] for the list.",
+    "Send the forms to the office at Chtaura. Org by Friday.": "Send the forms to the [email withheld] by Friday.",
+    "Mail the forms to the portal at example.org": "Mail the forms to the [email withheld]",
+    "Reply to the survey at example.org before June": "Reply to the [email withheld] before June",
+    "Rank Zayna at example. Org by year": "Rank [email withheld] by year",
+    "Show Rania Haddad at example. Org": "Show Rania [email withheld]",
+    "List the files from Zayna at example. Lb": "List the files from [email withheld]",
+    "Show Zayna at example. Info": "Show [email withheld]",
 }
 # what a person types with an address's name before a link's scheme (a name's shape, or "at" written as no
 # sentence writes it): no e-mail address, but its name goes as one would (what is sent and kept is the same on

@@ -663,6 +663,59 @@ def test_a_record_text_loses_a_domain_the_link_rule_does_not_know_as_a_link():
     assert redact.LINK.sub(redact.LINK_WITHHELD, "See example[.]org for it") == "See [link withheld] for it"
 
 
+def test_the_final_review_texts_lose_what_a_commit_of_the_chain_withheld():
+    """The final review's texts, privacy first: a surname or an acronym in capitals before a place's name and a
+    capitalised ending, a name after a determiner, "point" after "the" or a word written to, the items of a list
+    of addresses, a mailbox written to at a place's domain, a page's word after a verb that mails, a name before
+    "St.Joseph"; in a record's text too, and a capitalised name before a domain no sentence writes and ". Org"."""
+    from tests.written_addresses import FINAL_RECORD, FINAL_TYPED, left
+
+    found = {text: people.without_addresses(text) for text in FINAL_TYPED}
+    assert found == FINAL_TYPED
+    for (
+        text,
+        sent,
+    ) in FINAL_TYPED.items():  # no part of an invented address is left (a name is the name rule's)
+        assert not left(sent.replace("Zayna Fakemira", "")), text
+    found = {text: people.without_emails(text) for text in FINAL_RECORD}
+    assert found == FINAL_RECORD
+    for text, sent in FINAL_RECORD.items():
+        assert redact.text(text, 500, frozenset()) == sent, text
+
+
+def test_the_final_review_keeps_a_sentence_after_a_places_name():
+    """A plain word in lower case before a place's name written capitalised, a full stop, a space and a sentence
+    stays, as d1b90c8 read it ("Teachers trained at Hammana. Net enrolment rose after that?"); a word that may name
+    someone does not ("Met Rania at Mt. Lebanon. Org chart updated" keeps no name: its record is the record
+    rule's); a page's word after a verb that goes to a page stays, its domain a link, in a KM text too."""
+    from neurodb.km import privacy as km_privacy
+
+    for text in (
+        "Teachers trained at Hammana. Net enrolment rose after that?",
+        "Classes resumed at Zouk. Org chart updated, who approved it?",
+        "Kits arrived at Deir. Info sessions followed. How many children attended?",
+        "Staff were present at Mt. Lebanon. Org chart updated.",
+        "We arrived at the point eg the school gate",
+    ):
+        assert people.without_addresses(text) == text, text
+        assert people.without_emails(text) == text, text
+    assert people.without_addresses("Met Rania at Mt. Lebanon. Org chart updated.") == (
+        "Met [email withheld] chart updated."
+    )
+    for text, sent in {
+        "How do I submit my report to the portal at zfakemira. org?": (
+            "How do I submit my report to the portal at [link withheld]?"
+        ),
+        "How do I submit my report to the portal at example.org?": (
+            "How do I submit my report to the portal at [link withheld]?"
+        ),
+    }.items():
+        assert people.without_addresses(text) == sent, text
+    assert km_privacy.for_ai("How do I submit my report to the portal at zfakemira. org?") == (
+        "How do I submit my report to the portal at [link withheld]?"
+    )
+
+
 def test_what_the_pushed_rules_withheld_stays_withheld():
     """The regression sweep against the pushed rules (every corpus text through every path, compared word by
     word): a document sent whole, which no link rule reads after, loses a web address written after a word

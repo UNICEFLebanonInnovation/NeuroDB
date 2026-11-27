@@ -1266,6 +1266,56 @@ def test_a_typed_request_before_a_pair_of_places_keeps_them(text):
     assert privacy.leftover(f"Question: {sent}") == []
 
 
+# (final review) a request's verb before a citation's form, a title's full stop before it, "&", or a place's
+# word that is a given or a family name too: the verb is read with the name, as every commit of the chain read it
+REQUESTS_CITED = {
+    "Summarise Tyre et al. (2020)": f"{W} et al. (2020)",
+    "Summarize French, Q. (2019)": f"{W} (2019)",
+    "Summarise Tyre, Q. (2020)": f"{W} (2020)",
+    "Summarise West and Jordan (2020)": f"{W} and Jordan (2020)",
+    "Summarise Halba and Tyre (2019)": f"{W} and Tyre (2019)",
+    "Summarise West et al. (2019) on attendance in Akkar": f"{W} et al. (2019) on attendance in Akkar",
+    "Explain French et al. 2019 findings on attendance": f"{W} et al. 2019 findings on attendance",
+    "Describe West (2019) on dropout": f"{W} (2019) on dropout",
+    "Summarise West et al.": f"{W} et al.",
+    "Thanks. Summarise French et al. (2019).": f"Thanks. {W} et al. (2019).",
+    "Summarise France & Jordan 2020": f"{W} & Jordan 2020",
+    "Dr. Show Haddad 2020": f"{W} 2020",
+    "Explain Beirut et al. (2018)": f"{W} et al. (2018)",
+    "Compare Georgia and Chad 2020": f"{W} and Chad 2020",
+    "Compare West and Jordan 2020": f"{W} and Jordan 2020",
+    "Show West and Tyre 2023": f"{W} and Tyre 2023",
+    "Show Jordan and Tyre 2023": f"{W} and Tyre 2023",
+    "Show North and Tyre 2023": f"{W} and Tyre 2023",
+    "Summarise France and Jordan 2020": f"{W} and Jordan 2020",
+    "Summarise Jordan and West 2020 who interviewed 40 teachers": f"{W} and West 2020 who interviewed 40 teachers",
+    "Summarise Georgia and Chad 2020's findings": f"{W} and Chad 2020's findings",
+}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("text", "sent"), REQUESTS_CITED.items())
+def test_a_typed_request_before_a_citation_is_read_with_its_name(text, sent):
+    """A request's verb is read apart only before places listed before a bare year ("Show Beirut and Tyre
+    2023"): before "et al.", a year in brackets, an initial, "&", after a title's full stop, or before a place's
+    word that is a given or a family name too ("Jordan", "West", "Georgia"), it is read with the name, which
+    goes, as in a record's text."""
+    assert privacy.typed_for_ai(text) == sent
+    assert privacy.clean_question(text) == sent
+    assert privacy.typed_for_ai(text, KM_PEOPLE) == sent
+
+
+@pytest.mark.django_db
+def test_a_typed_request_before_places_and_a_bare_year_stays():
+    """Places only, joined by commas or "and", before a bare year: the verb is read apart (in lower case)."""
+    for text in ("Show Beirut and Tyre 2023", "Compare Akkar, Halba and Tripoli 2023 schools"):
+        sent = text[0].lower() + text[1:]
+        assert privacy.typed_for_ai(text) == sent, text
+        assert privacy.clean_question(text) == sent, text
+    for text in ("Summarize Akkar 2022", "Compare Lebanon and Syria 2023"):  # nothing to read apart
+        assert privacy.clean_question(text) == text, text
+
+
 @pytest.mark.django_db
 def test_an_and_pair_judges_each_name_on_its_own():
     """ "&" or "and": an organisation or a place stays, the other name goes unless it is itself a place written

@@ -70,8 +70,9 @@ address.
   you write to or call an address ("cc partners at ...", "From: monitoring at ...", "Is info at ... the right
   address?", "Copy partners at ... on the reply", "Questions go to monitoring at ...", "Contact IT at ..."),
   every address of a list after "To:", "Contacts:" or "Please email", and the word before any ending after a
-  dot and a space then too ("Contact monitoring at example. de."); a page after "to the" stays a page ("submit
-  my report to the portal at [link withheld]"). A site's address whose words no sentence writes goes as a link whatever its ending ("How many
+  dot and a space then too ("Contact monitoring at example. de."), and every address of a list of addresses; a
+  page after a verb that goes to a page and "to the" stays a page ("submit my report to the portal at [link
+  withheld]"), but not after a verb that mails ("Please email the report to the dashboard at ..." goes). A site's address whose words no sentence writes goes as a link whatever its ending ("How many
   visits at [link withheld] were done"), and a code before it goes with it ("How many [email withheld]"); what
   is glued after a link goes too ("more info at [link withheld]"), and so does what
   is glued after an address ("x at example.co.It", "x at example dot gov.lb"). A full link (one that starts
@@ -81,8 +82,11 @@ address.
   one that is also a word, in any case, goes like any other after a word that may name someone, whatever
   follows it ("x at example.today", "x at example.school", "x at example.ok", "x at example.show the files",
   "x at EXAMPLE.NO", "x at Example.Online", "x at example.now"); "point" in French for the dot too ("x
-  arobase example point org", "x arobase health point org", "x at health point org"; "at this point
-  co-ordination" stays). A page's address (in the Help assistant and Monitoring insights) that writes a
+  arobase example point org", "x arobase health point org", "x at health point org", "Write to Rania at the point
+  org"; "at this point co-ordination" stays). When it is unclear whether a word before "at" is a name, it goes
+  with the address: a surname or an acronym in capitals before a place and ". Info" ("Met Rania HADDAD at
+  Bebnine. Info sessions followed" loses "HADDAD at Bebnine. Info"), a name after "our" or "the" ("Our Rania at
+  example. Org replied"), a name before "St." glued to a word ("Met Rania at St.Joseph."). A page's address (in the Help assistant and Monitoring insights) that writes a
   person's name after a title ("Ms ...", "Fr ...") is not sent either. The word before "at" decides: after a word
   that names no one (also what a report says happened there,
   "reported", "happened", "visited", "closed", "took place"..., and one of Lebanon's governorates, districts

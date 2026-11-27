@@ -409,9 +409,11 @@ come from.
     example<.>org", "x arobase example.org", "x arobase example point org" (the French "point" for the dot,
     before a domain's ending, always after "arobase", "@", "[at]" or "(at)" and after a word that may name
     someone, "x at health point org", "x at the point example point org", "x arobase sante point gov point
-    lb"; after a word that names no one, or a plain word before one "point" after a word of a sentence's
-    grammar, it is a sentence's: "the data point de facto", "at this point co-ordination", "We arrived at the
-    point eg the gate", "at baseline point net of dropouts" stay), "x 'at' example.org", "x 'at' example
+    lb", and after a word the text writes to or names an address, "Contact monitoring at health point org",
+    "To: data at education point gov point lb", "Write to Rania at the point org"; after a word that names no
+    one, or a plain word before one "point" after a word of a sentence's grammar and before "eg" or "de", it
+    is a sentence's: "the data point de facto", "at this point co-ordination", "We arrived at the point eg the
+    gate", "at baseline point net of dropouts" stay), "x 'at' example.org", "x 'at' example
     'dot' org", "x *at* example *dot* org", "x /at/ example /dot/ org", "x at-sign example.org", "x at at
     example.org", "x at example period org", "x(a)example.org", "x-at-example-dot-org",
     "x-at-example-dot-invalid" and "x_at_example_dot_org" lose the whole address, the name before "at" too,
@@ -434,10 +436,17 @@ come from.
     at", "Questions go to monitoring at", "Who reads monitoring at", "Is stats at example.org still active?",
     "The focal points are", "Mailboxes:", "Contact IT at", "Contact it at"; every item of a list after such a
     header or verb: "To: monitoring at example.org, partners at example.org and status at example.org",
-    "Contact Rania (rfakemira at example.org) or partners at example.org"; any ending after a dot and a space
-    counts then too, "Contact monitoring at example. de.", "To: registration at example. Org"; never a page's
-    word after "to the": "How do I submit my report to the portal at [link withheld]?", "Reply to the survey
-    at [link withheld]", while "email the portal at" is a mailbox) and, in what
+    "Contact Rania (rfakemira at example.org) or partners at example.org", its first item written with a dot
+    and a space too, "To: rania at example. org, monitoring at example.org"; every item of a list of addresses,
+    one of them written with a domain's ending, "zfakemira at example. org, registration at example. org",
+    "cc monitoring at example.org and the portal at example.org"; any ending after a dot and a space counts
+    then too, "Contact monitoring at example. de.", "To: registration at example. Org", and ". Org", ". Lb",
+    ". Com" after a place's name, "Write to the school at Minyara. Org for the files"; never a page's word
+    after a verb that goes to a page and "to the", with no verb that mails in the sentence and no word that
+    follows an address after it: "How do I submit my report to the portal at [link withheld]?", "How do I
+    return to the dashboard at [link withheld]?", while "email the portal at", "Please email the report to the
+    dashboard at", "Reply to the survey at example.org before June" are a mailbox; in a KM Database's text,
+    which no link rule reads after, that page's web address goes as a link) and, in what
     a person types, before a domain whose words no sentence writes, a measure's, a report's or a page's word
     that opens the text or a sentence, or that no determiner makes a thing before what follows an address
     ("status at example.online", "dropout at example.plus before June"); a domain whose words no sentence
@@ -559,19 +568,26 @@ come from.
     rose", "Kits were delivered at Akkar. Org chart updated", "We started at dawn. Info: 40 kits were
     delivered" stay; "is Zfakemira at example. ORG correct?" and "x2 at example. fr sent the report" do not.
     In what a person types, a word that may name someone before a domain whose words no sentence writes ends
-    an address with any ending after a dot and a space ("Rania at example. Info replied", "did zfakemira at
-    example. net reply?", "Rania at Bebnine. Info sessions followed"), but a thing does only before what
-    follows an address or when the text writes to it: an acronym after a determiner or before a town of the
-    KM Database's places (`km.places`, which the KM app registers in `people.PLACE_SOURCES` when it starts,
-    so that no other module imports it), a capitalised word after a determiner, a word before a place's first
-    word written short ("We met the NGO at Bebnine. Info sessions followed", "The PTA at Kfarhabou. Net
-    enrolment rose", "We trained the Directorate at Bebnine. Info sessions followed", "Staff were present at
-    Mt. Lebanon. Org chart updated" stay; "Write to ZFAKEMIRA at Bebnine. Info" does not). ". Org", ". ORG",
-    ". Lb", ". LB" and ". Com" end the domain after a word that may name someone whatever follows, before a
+    an address with any ending after a dot and a space, whatever word comes before it, privacy first ("Rania
+    at example. Info replied", "did zfakemira at example. net reply?", "Our Rania at example. Org replied",
+    "Met Rania HADDAD at Bebnine. Info sessions followed"; an acronym reads as a surname in capitals: "We met
+    the NGO at Bebnine. Info sessions followed" loses "NGO at Bebnine. Info"); only a plain word in lower case
+    before a place's name written capitalised and a capitalised word that a sentence goes on from counts it
+    only before what follows an address ("Teachers trained at Hammana. Net enrolment rose after that?",
+    "Classes resumed at Zouk. Org chart updated", "Staff were present at Mt. Lebanon. Org chart updated" stay).
+    The KM Database's places (`km.places`, which the KM app registers in `people.PLACE_SOURCES` when it starts,
+    so that no other module imports it) and the words of a sentence are a place's domain; "Mt." or "St." is
+    one only before such a word ("Mt. Lebanon"; "Mt. Example", "St. Joseph" are not). ". Org", ". ORG", ".
+    Lb", ". LB" and ". Com" end the domain after a word that may name someone whatever follows, before a
     domain whose words name no place ("Rania at example. Lb for the files", "the focal point is zfakemira at
-    example. Org and she knows"; "Kits were delivered at Tyre. Lb of rice each" stays).
+    example. Org and she knows"; "Kits were delivered at Tyre. Lb of rice each" stays). In what a person
+    types, a capitalised word that may name someone before a place's first word written short and glued to
+    the next goes with them ("Met Rania at St.Joseph." → "Met [email withheld].").
     In a record's text, a plain word before a domain whose words no sentence writes, that no link rule takes,
-    is an address's name ("Rania at example.it has the files").
+    is an address's name ("Rania at example.it has the files"), and so is a capitalised word before such a
+    domain whose words name no place, then a capitalised ending after a dot and a space ("Rank Zayna at
+    example. Org by year", "Show Zayna at example. Info"; "Met Rania at Riverside. Info sessions followed"
+    stays: a place's name and a sentence).
   - In a record's text, a name in capitals and "AT", or of capitals and digits, before a domain whose words
     before its ending no sentence writes (`people._foreign`: not a common word, a place or a code) is an
     address's name whatever the ending's case and whatever follows it ("X AT EXAMPLE.IT HAS THE DATA", "X2
@@ -1752,12 +1768,17 @@ asked). In order:
    in that document's texts). In the question only (`privacy.typed_for_ai`), a name before a bare year after
    "did", "does", "By", "according to" or "per" is a citation's ("What did Quenby 2019 say?"; an event's or a
    topic's word stays, as before a year elsewhere: "How did Covid 2020 change enrolment?"), and a request's verb
-   that opens it or one of its sentences before a capitalised word (`REQUEST_VERBS`: "Show", "Compare",
-   "Summarise", "Describe", "Map", ...; never "Tell": "Tell Abbas" is a town) is read apart from the name
-   after it when the question then names no one, kept in lower case where the rule would otherwise read it
-   with that name ("show Beirut and Tyre 2023"), so that a record's rule, the final check and a download's
-   About sheet read the kept question the same way; when a name is withheld, the verb is read as any word
-   ("Show Quenvell and Tyre 2023" → "[name withheld] and Tyre 2023"). These words are never kept as no name
+   that opens it or one of its sentences before places only, listed with commas or "and", then a bare year
+   (`REQUEST_VERBS`: "Show", "Compare", "Summarise", "Describe", "Map", ...; never "Tell": "Tell Abbas" is a
+   town) is read apart from the names after it when the question then names no one, kept in lower case where
+   the rule would otherwise read it with that name ("show Beirut and Tyre 2023"), so that a record's rule,
+   the final check and a download's About sheet read the kept question the same way; when a name is withheld,
+   the verb is read as any word ("Show Quenvell and Tyre 2023" → "[name withheld] and Tyre 2023"). It is read
+   with the name before a citation's form ("Summarise Tyre et al. (2020)", "Summarize French, Q. (2019)",
+   "Summarise Halba and Tyre (2019)", "... 2020 found", "... 2020's findings"), before "&" ("Summarise France &
+   Jordan 2020"), after a title's full stop ("Dr. Show Haddad 2020"), and before a place's word that is a
+   given or a family name too (`privacy._PLACES_NAMES_TOO`: "Show Jordan and Tyre 2023", "Compare Georgia and
+   Chad 2020" withhold the first name). These words are never kept as no name
    elsewhere: they are family names too ("Rank et al. (2019)", "List, Q. (2019)", "See & Quenby 2021" go).
    The typed text is searched (never an address in it, written out or not, by the same rule), never kept or
    sent. The questions sent (and earlier questions of the conversation) are checked again for a surname in

@@ -39,7 +39,7 @@ list of the people it knows, which no KM text is compared with, and nothing is a
   and "[name withheld] Doe" (and "studies by Roe, Poe and [name withheld]"). A first name left before a name
   withheld goes too ("Jane [name withheld]"). Words that start a sentence or a clause ("However, 2021",
   "Overall, 2021") are never names; a request's verb ("Show", "List", "Rank") is a family name too, read apart
-  only where it opens a typed question (:func:`typed_for_ai`).
+  only where it opens a typed question before places and a bare year (:func:`typed_for_ai`).
 
 Downloads keep links and numbers; the assistant's texts also lose e-mail addresses, links and phone numbers.
 The broad phone pattern is never used: it would take sample sizes and years. A question typed on the Ask tab
@@ -1359,6 +1359,27 @@ REQUEST_VERBS = frozenset(
 )
 _SENTENCE_START = r"(?:^|(?<=\n)|(?<=[.!?…]\s)|(?<=[.!?…][\"”’)]\s))[ \t]*"
 _LEAD = re.compile(rf"{_SENTENCE_START}(?P<v>[A-Z][A-Za-z]+)(?=[ \t]+[{_CAP}][\w'’\-]*[a-zß-ÿ])")
+# what a request's verb is read apart before: places, listed with commas or "and" (never "&": a citation's
+# authors), then a bare year ("Show Beirut and Tyre 2023", "Summarize Akkar 2022", "Compare Akkar, Halba and
+# Tripoli 2023 schools"); never a citation's form after them ("Summarise Tyre et al. (2020)", "Summarize
+# French, Q. (2019)", "Summarise Halba and Tyre (2019)", "Summarise West and Jordan 2020 found", "... 2020's
+# findings")
+_REQUEST_PLACES = re.compile(
+    rf"[ \t]+(?P<run>{NAME}(?:[ \t]*,[ \t]*{NAME})*(?:,?[ \t]+and[ \t]+{NAME})?)[ \t]+{YEAR}(?![\w'’\-])"
+)
+_POSSESSIVE_YEAR = re.compile(rf"[ \t]+{YEAR}['’]s?(?![\w\-])")
+# a title's full stop before a request's verb: no sentence's end, the verb a name's ("Dr. Show Haddad 2020")
+_TITLE_STOP = re.compile(
+    r"(?<![\w'’\-])(?:Dr|Drs|Prof|Mr|Mrs|Ms|Mx|Mme|Mlle|Fr|Sr|Jr|Rev|Revd|Eng|Sheikh|Sh|Hon|Capt|Col|Gen|Lt|Sgt)"
+    r"\.[ \t]*$"
+)
+# the words of places (:data:`PLACE_WORDS`) that are a given name or a family name too ("Jordan", "West",
+# "France", "Georgia"): never read as a place after a request's verb (:func:`_reads_apart`), where "Summarise
+# Jordan and West 2020" is the two authors' citation as much as two places
+_PLACES_NAMES_TOO = frozenset(
+    "jordan west north south east france georgia chad israel india ireland kenya camp camps horn salvador "
+    "victoria florence".split()
+)
 _LEAD_ANY = re.compile(rf"{_SENTENCE_START}(?P<v>[A-Za-z]+)\b")
 # C9, in what a person typed: a name before a bare year after "did", "does", "By", "according to" or "per"
 # ("What did Quenby 2019 say about dropout?", "By Quenby 2019, how many ...") is a citation's; an event's or a
@@ -1401,15 +1422,17 @@ def typed_for_ai(text: str, people: People = NOBODY) -> str:
     "did", "does", "By", "according to" or "per" (C9: "What did Quenby 2019 say?"). A surname that only an
     author entry of one bare word gives (``people.ordinary_alone``) is withheld only when it is written as a
     name ("Doe's", "J. Doe", "by Doe", "Doe 2020", "Doe et al."): "Inclusion of children?" keeps its first
-    word. A request's verb that opens the text or one of its sentences before a capitalised word
-    (:data:`REQUEST_VERBS`: "Show Beirut and Tyre 2023") is read apart from the words after it when the text
-    then names no one, and stays in lower case where the rule read without that exception would withhold it
-    ("show Beirut and Tyre 2023"), so that every later check (a record's rule, the final check, a download's
-    About sheet) reads it the same way; when a name is withheld, the verb is read as any other word ("Show
-    Quenvell and Tyre 2023" → "[name withheld] and Tyre 2023")."""
+    word. A request's verb that opens the text or one of its sentences before places and a bare year
+    (:data:`REQUEST_VERBS`, :func:`_reads_apart`: "Show Beirut and Tyre 2023"; never before a citation's form,
+    "&", after a title's full stop or before a place's word that is a name too: "Summarise Tyre et al.
+    (2020)", "Show Jordan and Tyre 2023" withhold the name) is read apart from the words after it when the
+    text then names no one, and stays in lower case where the rule read without that exception would withhold
+    it ("show Beirut and Tyre 2023"), so that every later check (a record's rule, the final check, a
+    download's About sheet) reads it the same way; when a name is withheld, the verb is read as any other word
+    ("Show Quenvell and Tyre 2023" → "[name withheld] and Tyre 2023")."""
     if not text:
         return text
-    leads = [m for m in _LEAD.finditer(text) if m.group("v").lower() in REQUEST_VERBS]
+    leads = [m for m in _LEAD.finditer(text) if m.group("v").lower() in REQUEST_VERBS and _reads_apart(m)]
     if not leads:
         return _typed(text, people)
     lowered = list(text)
@@ -1423,6 +1446,29 @@ def typed_for_ai(text: str, people: People = NOBODY) -> str:
     if restored is not None and restored != cleaned and _typed(restored, people) == restored:
         return restored
     return cleaned
+
+
+def _reads_apart(lead: re.Match) -> bool:
+    """Whether a request's verb that opens a typed sentence (``lead``, :data:`_LEAD`) is read apart from the
+    words after it: places only (:func:`_a_place`, none a given or a family name too:
+    :data:`_PLACES_NAMES_TOO`), listed with commas or "and", then a bare year that no citation's form follows
+    (:data:`_REQUEST_PLACES`, :data:`_CITED_YEAR`, :data:`_CITED_AFTER`, a possessive), and no title's full
+    stop before the verb (:data:`_TITLE_STOP`: "Dr. Show Haddad 2020"). Any other shape is read as the rule
+    reads it ("Summarise Tyre et al. (2020)", "Compare West and Jordan 2020", "Summarise France & Jordan
+    2020")."""
+    text = lead.string
+    if _TITLE_STOP.search(text, max(0, lead.start("v") - 12), lead.start("v")):
+        return False
+    found = _REQUEST_PLACES.match(text, lead.end("v"))
+    if not found:
+        return False
+    end = found.end("run")
+    if _CITED_YEAR.match(text, end) or _CITED_AFTER.match(text, end) or _POSSESSIVE_YEAR.match(text, end):
+        return False
+    names = re.split(r"[ \t]*,[ \t]*(?:and[ \t]+)?|,?[ \t]+and[ \t]+", found.group("run"))
+    return all(
+        _a_place(_place_words(name)) and _PLACES_NAMES_TOO.isdisjoint(_place_words(name)) for name in names
+    )
 
 
 def _restored(cleaned: str, lowered: str, verbs: dict[int, str]) -> str | None:
