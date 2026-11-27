@@ -341,15 +341,31 @@ _AS_PLACE_COMMA = re.compile(
 )
 # a citation's words right before that word ("As reported in Naameh 2021", "(cited in Akar 2018)", "Findings
 # in Akar 2016 show", "Similar results were found in Naameh 2021", "Table adapted from Naameh 2021", "(e.g.,
-# in Naameh 2021)"), or "as" within the two words before it ("As also noted in"): what follows is a source,
-# never a place
+# in Naameh 2021)", "Building on the work in Akar 2020", "The same pattern appears in Hasroun 2020", "See the
+# review in Akar 2016", "A study in Naameh 2021", "Estimates from Akar 2016", "Figures from Kousba 2019", "The
+# figures given for Akar, 2016"), or "as" within the two words before it ("As also noted in"): what follows
+# is a source, never a place
 _CITED_BEFORE = re.compile(
     r"(?:\b(?i:as|see|cf\.?|reported|noted|shown|cited|described|discussed|documented|presented|stated|quoted"
     r"|summari[sz]ed|reviewed|published|argued|highlighted|outlined|findings|evidence|research|found|mentioned"
     r"|indicated|explained|observed|suggested|seen|detailed|demonstrated|estimated|confirmed|adapted|taken"
-    r"|drawn|derived|obtained|sourced|extracted|reproduced|results|data)|\b(?i:e\.g|i\.e)\.)[\s,]*$"
+    r"|drawn|derived|obtained|sourced|extracted|reproduced|results|data|work|works|study|studies|review"
+    r"|reviews|paper|papers|article|articles|literature|appears?|appeared|figures|estimates|statistics|given)"
+    r"|\b(?i:e\.g|i\.e)\.)[\s,]*$"
     r"|\b(?i:as)\s+[\w'’]+[\s,]*$"  # "as" within the two words before it ("As also found in")
 )
+# a source's verb after the year ("Akar and Naameh 2020 found", "Girls in Naameh 2021 reported", "Jabal Mohsen
+# (2020) suggested"): the names before it are a citation's, never a place's ("Numbers for Sayda, 2024 show a
+# rise" is a place's)
+_CITED_AFTER = re.compile(
+    rf"(?:{ET_AL})?,?\s+\(?\s*(?:19|20)\d\d[a-z]?\s*\)?,?\s+(?i:found|finds|find|reported|reports|suggested"
+    r"|suggests|suggest|argued|argues|argue|noted|notes|concluded|concludes|estimated|documented|documents"
+    r"|observed|observes|showed|highlighted|highlights|indicated|indicates|demonstrated|demonstrates|stated"
+    r"|states|recommended|recommends|described|describes)\b"
+)
+# a list that goes on before a name, after an earlier name and year ("reported for Naameh, 2021 and for Akar,
+# 2020"): the earlier one's words decide for it
+_LIST_BEFORE = re.compile(r"(?:19|20)\d\d[a-z]?,?\s+(?:and|or|&)\s*$", re.IGNORECASE)
 # a year with a letter ("2021a") or a page after it ("2021, p. 12", "2019, pp. 4-5"): only a citation's
 _CITED_YEAR = re.compile(rf"(?:{ET_AL})?,?\s+(?:19|20)\d\d(?:[a-z]\b|\s*,\s*pp?\.)")
 _LISTED = re.compile(r"\s*,\s*(?:(?:and|or|&)\s+)?|\s+(?:and|or|&)\s+", re.IGNORECASE)
@@ -378,10 +394,18 @@ def _as_place(text: str, start: int, name: str, places: re.Pattern = _AS_PLACE) 
     (:data:`_CITED_BEFORE`: "As reported in Naameh 2021", "(cited in Akar 2018)") writes a source."""
     if _POSSESSIVE.search(name) or not _a_place(_place_words(name)):
         return False
+    if text.rfind("(", 0, start) > text.rfind(")", 0, start):  # in a parenthesis: "(for Naameh, 2021)"
+        return False
     window = text[max(0, start - 120) : start]
     found = list(places.finditer(window))
     if not found or _CITED_BEFORE.search(window, 0, found[-1].start() + 1):
         return False
+    # an earlier name and year that the list goes on from: a source's when a citation's word writes it
+    for earlier, later in zip(reversed(found[:-1]), reversed(found[1:]), strict=False):
+        if not _LIST_BEFORE.search(window, 0, later.start() + 1):
+            break
+        if _CITED_BEFORE.search(window, 0, earlier.start() + 1):
+            return False
     between = window[found[-1].end() :]
     if not between.strip():
         return True
@@ -395,8 +419,27 @@ def _as_place(text: str, start: int, name: str, places: re.Pattern = _AS_PLACE) 
     return True
 
 
+def _kept_as_source(name: str) -> bool:
+    """:func:`kept`, where a source's form names it ("Jabal Mohsen et al.", "Deir Ammar (2019) reported"): a
+    place's name of several words is kept there only when each of its words is a place's or a common word, not
+    by one place's word among a person's names."""
+    if not kept(name):
+        return False
+    from .authors import org_test
+
+    found = [fold(w) for w in _WORDS.findall(name)]
+    if org_test(name) or any(w in GENERIC_WORDS for w in found):
+        return True
+    if any(_MIXED_CAPS.match(w) or _PLURAL_ACRONYM.match(w) for w in _WORDS.findall(name)):
+        return True
+    return all(w in _EVERY or w.strip("'’") in _EVERY or _POSSESSIVE.sub("", w) in _EVERY for w in found)
+
+
 def _names(
-    match: re.Match, places: re.Pattern | None = None, surnames: frozenset[str] = frozenset()
+    match: re.Match,
+    places: re.Pattern | None = None,
+    surnames: frozenset[str] = frozenset(),
+    source: bool = False,
 ) -> list[tuple[int, int]]:
     """The spans of the names of a C1-C8 match that are not kept, nor a place written as one where the
     match's shape is a place's before a bare year (``places``, the words that write one there: C4, C5 and
@@ -404,7 +447,9 @@ def _names(
     listed is a place: :func:`_as_place`), never one of the KM Database's surnames (``surnames``: "Dropout
     rose in Naameh 2021" when an author is named Naameh). A citation's shape ("Naameh et al.", "Naameh
     (2021)", a parenthesis's item, a year with a letter or a page after it: "in Naameh 2021a", "in Naameh
-    2021, p. 12") is a person's, whatever word comes before it."""
+    2021, p. 12") is a person's, whatever word comes before it; where a source's form names it (``source``:
+    "et al.", "(2019) reported"), a place's name of several words is kept only as :func:`_kept_as_source`
+    says ("Jabal Mohsen et al." goes)."""
     spans = []
     found = match.groupdict()
     names = [group for group in ("a", "b") if found.get(group)]
@@ -413,10 +458,15 @@ def _names(
         and all(_a_place(_place_words(found[group])) for group in names)
         and all(surnames.isdisjoint(_place_words(found[group])) for group in names)
         and not _CITED_YEAR.match(match.string, match.end())
+        and not _CITED_AFTER.match(match.string, match.end())
+        # "&" joins a citation's authors, never places ("Numbers for Akar & Naameh, 2020")
+        and not (found.get("b") and "&" in match.string[match.end("a") : match.start("b")])
     )
     for group in names:
         name = found[group]
-        if kept(name) or (listed and _as_place(match.string, match.start(group), name, places)):
+        if (_kept_as_source(name) if source else kept(name)) or (
+            listed and _as_place(match.string, match.start(group), name, places)
+        ):
             continue
         spans.append(match.span(group))
     return spans
@@ -489,7 +539,7 @@ def _citations(text: str, surnames: frozenset[str] = frozenset()) -> str:
         return _withhold(value, spans)
 
     if _HAS_ET_AL.search(text):
-        text = hold(text, [s for m in C1.finditer(text) for s in _names(m)])
+        text = hold(text, [s for m in C1.finditer(text) for s in _names(m, source=True)])
     if not _HAS_YEAR.search(text):
         return _again(text, cited)
     if "(" in text:
@@ -498,7 +548,10 @@ def _citations(text: str, surnames: frozenset[str] = frozenset()) -> str:
             return "(" + ";".join(_item(item, cited) for item in match.group(1).split(";")) + ")"
 
         text = PAREN.sub(paren, text)
-        text = hold(text, [s for m in C3.finditer(text) for s in _names(m)])
+        text = hold(
+            text,
+            [s for m in C3.finditer(text) for s in _names(m, source=bool(_CITED_AFTER.match(text, m.end())))],
+        )
     if ":" in text:
 
         def listed(match: re.Match) -> str:

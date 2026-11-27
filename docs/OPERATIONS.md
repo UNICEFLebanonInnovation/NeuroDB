@@ -407,7 +407,9 @@ come from.
     ".ngo" and ".invalid"), "x at example. net before June", "x@example. info", "x at example .org", "x @
     example dot org", "x [@] example [dot] org", "x at example dot invalid", "x at example[.]invalid", "x at
     example<.>org", "x arobase example.org", "x arobase example point org" (the French "point" for the dot,
-    before a domain's ending: "the data point de facto" stays), "x 'at' example.org", "x 'at' example 'dot'
+    before a domain's ending, after a word no sentence writes: "the data point de facto", "at this point
+    co-ordination", "at the point eg the gate", "at baseline point net of dropouts" stay), "x 'at'
+    example.org", "x 'at' example 'dot'
     org", "x *at* example *dot* org", "x /at/ example /dot/ org", "x at-sign example.org", "x at at
     example.org", "x at example period org", "x(a)example.org", "x-at-example-dot-org",
     "x-at-example-dot-invalid" and "x_at_example_dot_org" lose the whole address, the name before "at" too,
@@ -417,13 +419,22 @@ come from.
     a link, its path too, when it is a web address's (`people._a_link`: a known ending, "www.", a path, a port
     or a query, a newer ending such as ".online", ".site", ".tech" or ".blog", or a country's of two letters
     such as ".sy", ".tv" or ".es", and ".it", ".in" or ".be" when what follows them follows an address, so
-    "write to info at [link withheld]" and "children at school.it was crowded" stays: a role's address is a
-    link's or an address's, never sent): a common word ("children at [link withheld]"), a measure or what a
+    "for more info at [link withheld]" and "children at school.it was crowded" stays; a role's mailbox
+    ("info", "data", "office", "contact", "support", `people.ROLE_NAMES`) written to or opening the text is
+    an address's name: "write to [email withheld]", "send it to [email withheld]", "data at example.online"
+    goes whole): a common word ("children at [link withheld]"), a measure or what a
     question counts ("the enrolment at", "rates at", "dropout at", "the GER at", "cases at", "partners at") or
     a web address's, a citation's or a page's word ("available", "published", "the dashboard", "the guide",
     "the profile", "accessed", "Contact us", "the focal point", "the methodology", "the chart", "an error at",
-    "the red flag at", "the page is blank at", "I am stuck at", "the map hangs at"); "visits at mt.lebanon",
-    "red flags at akkar.district" stay. Any other word goes with the address, and so does what is left of a
+    "the red flag at", "the page is blank at", "I am stuck at", "the map hangs at"), or a code, which names no
+    one ("How many G5 at [link withheld]", "F09 at [link withheld]"; written to before a domain no sentence
+    writes, a code is an address's name: "write to KG2 at example.it" goes whole); "visits at mt.lebanon",
+    "red flags at akkar.district" stay. What is glued after an address's domain goes with it ("x at
+    example.co.It", "x at mail.example.me", "x@example[.]com.lb", "x at example dot gov.lb", "x at example.
+    net.lb", "x@example.com. lb", "x @pytest.mark.parts_may_fail"), and so does a name written with spaced
+    dots before an at sign with spaces ("x . y  @  example . org"). After a word that may name someone, an
+    ending that is a word of a sentence's grammar counts too ("x at example.now", "x at example.all"). Any
+    other word goes with the address, and so does what is left of a
     path after it ("x at example.org/ops", "x at www.example.org"). A link written with its scheme
     ("https://", "ftp://", "hxxps://" or "hxxps[:]//" as a link is defanged, "https:/", "http//" or "htps://"
     as it is mistyped, "//", "mailto:") is never an e-mail address: the word before "at" stays and the link
@@ -515,18 +526,29 @@ come from.
     in typed text.
   - *Texts sent whole* with no other cleaning (a document to review or summarise, a periodic report's
     pages, a Word or text CPD, a daily review finding, a What's new line) lose their addresses by the
-    record rule (`people.without_emails`), so what it keeps by design goes as written there; a text
-    without one is sent exactly as it is, and a CPD in PDF is sent as the file, not cleaned.
-  - *The search words of a Monitoring insights filter* lose an address written in them, by the typed
-    rule, as soon as the filter is read (`fmm.scope.searched`, before they are cut to 200 characters, so
-    that no cut leaves part of one; the Help page's address is read whole too, then cut): no visit's search
+    record rule (`people.without_emails`), so what it keeps by design goes as written there; as no link
+    rule reads them after, a web address written after a word and "at" goes there as a link ("Contact us at
+    [link withheld]", "How many Session2 at [link withheld]"); a text without one is sent exactly as it is,
+    and a CPD in PDF is sent as the file, not cleaned.
+  - In a record's text, a name in capitals and "AT", or of capitals and digits, before a domain whose words
+    before its ending no sentence writes (`people._foreign`: not a common word, a place or a code) is an
+    address's name whatever the ending's case and whatever follows it ("X AT EXAMPLE.IT HAS THE DATA", "X2
+    at example.be has the data", "X AT example.Online"); "KZ3 at school.it was hot", "QX12 at Halba.No
+    teachers came", "ZM2 at saida.it was closed" stay. A school, fiscal or academic year's code ("SY2024",
+    "FY2023", "PD2023", "Mar2024") is a code, no name.
+  - *The search words of a Monitoring insights filter* lose an address written in them, and a web address
+    written after a word and "at" that the typed rule withholds ("Contact us at [link withheld]",
+    `people.withheld_typed`), by the typed rule, as soon as the filter is read (`fmm.scope.searched`, before
+    they are cut to 200 characters, so that no cut leaves part of one; the Help page's address is read whole
+    too, then cut): no visit's search
     text holds one, so the
     same visits are found, and no filter kept (a chat question's, a brief's), shown, sent to the AI (the
     filter line, the dashboard's address a look-up returns, whose search words are cleaned as typed text
     too) holds one.
   - Monitoring insights' last check (`fmm.privacy.assert_clean`) stops a text that still holds an address
-    the record rule finds, or a NeuroDB page's address whose query holds one (read as written: "+" a
-    space, "%5B" a bracket), and the chat's filter drops such a page address; a prompt text holding an
+    the record rule finds, or a NeuroDB page's address whose query holds one, or a web address the typed rule
+    withholds after "at" (read as written: "+" a space, "%5B" a bracket), and the chat's filter drops such a
+    page address; a prompt text holding an
     address written out cannot be saved.
   - Not read as an address: "at" and the dot in another language's words (the Arabic "على", the French
     "point"), which ordinary sentences use.
@@ -1646,10 +1668,18 @@ asked). In order:
    (2021) study", "According to Naameh and Doe (2021)", a year with a letter or a page after it ("in Naameh
    2021a", "in Naameh 2021, p. 12"), a citation's word before "in", "for" or "from" ("As reported in Naameh
    2021", "(cited in Akar 2018)", "Findings in Akar 2016", "Similar results were found in Naameh 2021", "Table
-   adapted from Naameh 2021", "(e.g., in Naameh 2021)", "as" within the two words before it: "As also noted in
-   Naameh 2021"), each name of a pair judged on its own ("from Tyre and Qana 2024" keeps both; "&" joins a
-   citation's authors, never places: "from Akar & Naameh 2020" withholds both, "from Tyre & Doering 2020"
-   "Doering"), "According to Naameh 2021", "Sources: Akar 2018; Naameh 2021", "In Doe 2021," at a sentence's
+   adapted from Naameh 2021", "(e.g., in Naameh 2021)", "Building on the work in Akar 2020", "The same pattern
+   appears in Hasroun 2020", "Figures from Kousba 2019", "The figures given for Akar, 2016", "as" within the
+   two words before it: "As also noted in Naameh 2021"; also the earlier one's when a list goes on from a
+   source: "reported for Naameh, 2021 and for Akar, 2020"), a source's verb after its year ("In Lebanon, Akar
+   and Naameh 2020 found", "Girls in Naameh 2021 reported"; "Numbers for Sayda, 2024 show a rise" stays), a
+   parenthesis ("(for Naameh, 2021)"), each name of a pair judged on its own ("from Tyre and Qana 2024" keeps
+   both; "&" joins a
+   citation's authors, never places: "from Akar & Naameh 2020" and "Numbers for Akar & Naameh, 2020" withhold
+   both, "from Tyre & Doering 2020" "Doering"); a place's name of several words in a source's form ("Jabal
+   Mohsen et al.", "Jabal Mohsen (2020) found", "Deir Ammar (2019) reported") is a name there too, a place
+   before a bare year ("child labour (Jabal Mohsen 2023)"), "According to Naameh 2021", "Sources: Akar 2018;
+   Naameh 2021", "In Doe 2021," at a sentence's
    start ("In Saida 2023," stays), an interview's speaker "– Sayda, 14", "(Houla, 15)", "“…,” said Naameh,
    16", "In an interview with Sayda, 14,", and a document's own author "Naameh, R." (its surname is withheld
    in that document's texts). The typed text is searched (never an address in it, written out or not, by the

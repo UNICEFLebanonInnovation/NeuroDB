@@ -278,6 +278,10 @@ NOT_ADDRESSES = {
     "LCRP2023 at akkar.no changes were needed.": "LCRP2023 at akkar.no changes were needed.",
     "Students of KZ3 at school.it was hot.": "Students of KZ3 at school.it was hot.",
     "Students of QX12 at Halba.No teachers came.": "Students of QX12 at Halba.No teachers came.",
+    # (regression sweep) a code of capitals and digits before a place and a sentence missing its space: the
+    # domain's words are a sentence's, not a domain's ("example")
+    "How many ZM2 at Halba.so what was found?": "How many ZM2 at Halba.so what was found?",
+    "How many ZM2 at saida.it was closed?": "How many ZM2 at saida.it was closed?",
 }
 # a word that names no one before "at" and a domain of an ending the link rule does not know (".ngo", ".de",
 # ".jo"): the domain goes as a link in a record's text too, the words stay
@@ -289,15 +293,17 @@ RECORD_LINKS = {
     "The results at zfakemira.jo were shared.": "The results at [link withheld] were shared.",
     "The data is available at zaynafakemira.de for all.": "The data is available at [link withheld] for all.",
     "See the guidance at zaynafakemira.ngo for details.": "See the guidance at [link withheld] for details.",
-    "Write to info at zaynafakemira.de for the files.": "Write to info at [link withheld] for the files.",
     "Email us at zfakemira.de.": "Email us at [link withheld].",
     "Contact us at zaynafakemira.online for the files.": "Contact us at [link withheld] for the files.",
-    "Write to info at zaynafakemira.sy for the files.": "Write to info at [link withheld] for the files.",
 }
 # questions a person types that hold no address, and how they are sent: a place written with an abbreviation,
 # a sentence missing its space, a web address after a word (withheld as a link, its path too)
 TYPED_NOT_ADDRESSES = {
     "How many visits at Mt.Lebanon had red flags?": "How many visits at Mt.Lebanon had red flags?",
+    # (regression sweep) a code names no one: its web address goes as a link, as after a common word; a
+    # school year's code ("SY2024") before a sentence missing its space stays
+    "How many G5 at Tyre.Gov": "How many G5 at [link withheld]",
+    "What were the SY2024 at SCHOOL.both many visits": "What were the SY2024 at SCHOOL.both many visits",
     "What happened at Mt.Lebanon?": "What happened at Mt.Lebanon?",
     "Show findings for schools at St.Joseph and Mar.Elias": "Show findings for schools at St.Joseph and Mar.Elias",
     "The AP was closed at Akkar.No evidence received": "The AP was closed at Akkar.No evidence received",
@@ -506,18 +512,22 @@ TYPED_ADDRESSES = {
     "contact z.fakemira at hxxps://example.org": "contact [email withheld]",
     "contact zfakemira2 at hxxps://example.org": "contact [email withheld]",
     # a word that names no one before "at" and a domain of a country's ending, a new ending or a port: the
-    # domain goes as a link (a role's address, "info at ...", is a link's or an address's: never sent)
-    "Please write to info at zaynafakemira.online for the list": "Please write to info at [link withheld] for the list",
+    # domain goes as a link; a role's mailbox written to or opening the text is an address's name (regression
+    # sweep: "info", "data" are part of the address and never sent)
+    "Please write to info at zaynafakemira.online for the list": "Please write to [email withheld] for the list",
     "Can I send the forms to data at zaynafakemira.sy before June": (
-        "Can I send the forms to data at [link withheld] before June"
+        "Can I send the forms to [email withheld] before June"
     ),
     "Is support at zaynafakemira.tech the right contact": "Is support at [link withheld] the right contact",
-    "write to info at zaynafakemira.it": "write to info at [link withheld]",
-    "write to info at zaynafakemira.in": "write to info at [link withheld]",
-    "write to info at zaynafakemira.es": "write to info at [link withheld]",
-    "write to info at zaynafakemira.be": "write to info at [link withheld]",
-    "write to info at zaynafakemira.tv": "write to info at [link withheld]",
-    "contact info at zaynafakemira.online:8080": "contact info at [link withheld]:8080",
+    "write to info at zaynafakemira.it": "write to [email withheld]",
+    "write to info at zaynafakemira.in": "write to [email withheld]",
+    "write to info at zaynafakemira.es": "write to [email withheld]",
+    "write to info at zaynafakemira.be": "write to [email withheld]",
+    "write to info at zaynafakemira.tv": "write to [email withheld]",
+    "contact info at zaynafakemira.online:8080": "contact [email withheld]:8080",
+    "contact info at example.sy": "contact [email withheld]",
+    "data at zfakemira.online": "[email withheld]",
+    "send it to data at zaynafakemira.online": "send it to [email withheld]",
     "For more info at zaynafakemira.online what do the guides say": (
         "For more info at [link withheld] what do the guides say"
     ),
@@ -525,7 +535,23 @@ TYPED_ADDRESSES = {
     "more details at zaynafakemira.sy": "more details at [link withheld]",
     "the guide at zaynafakemira.blog please": "the guide at [link withheld] please",
     "I emailed them at zaynafakemira.it yesterday": "I emailed them at [link withheld] yesterday",
-    "write to info at Zaynafakemira.Sy": "write to info at [link withheld]",
+    "write to info at Zaynafakemira.Sy": "write to [email withheld]",
+    # (regression sweep) an ending that is a word of a sentence's grammar after a word that may name someone
+    # (".now", ".all", ".out"); a country's ending after a domain written out or spaced ("example[.]com.lb",
+    # "example dot co.uk", "example. net.lb", "example.com. lb"); a name before its full stop and a space
+    # ("zayna . fakemira  @  example . org"); a code written to before a domain no sentence writes
+    "zfakemira at example.now": "[email withheld]",
+    "Who is zayna.fakemira AT example.now": "Who is [email withheld]",
+    "zfakemira at example.all": "[email withheld]",
+    "write to Zfakemira at EXAMPLE.now for the files": "write to [email withheld] for the files",
+    "email ZFAKEMIRA2 @ example[.]gov.lb please": "email [email withheld] please",
+    "is zfakemira @ example dot co.uk correct?": "is [email withheld] correct?",
+    "email zayna_fakemira at example. net.lb please": "email [email withheld] please",
+    "write to Zfakemira AT example. com.lb before June": "write to [email withheld] before June",
+    "2zfakemira @ example.com. lb": "[email withheld]",
+    "zayna . fakemira  @  example . org": "[email withheld]",
+    "is Zfakemira at example. ORG correct?": "is [email withheld] correct?",
+    "Fake survey: write to KG2 at example.it for the files.": "Fake survey: write to [email withheld] for the files.",
     # an ending that is also a word a request goes on with (".show", ".total"), then a verb, "please", "if"
     "zfakemira at example.show has the data": "[email withheld] has the data",
     "the address is zfakemira at example.show please": "the address is [email withheld] please",
@@ -683,6 +709,20 @@ RECORD_ADDRESSES = {
     "Contact: zfakemira arobase example point org": "Contact: [email withheld]",
     # capitals and digits written to, or followed by what follows an address
     "Write to KZ3 at example.it for the annex.": "Write to [email withheld] for the annex.",
+    # (regression sweep) a role's mailbox written to; a name in capitals and "AT", or of capitals and digits,
+    # before a domain no sentence writes; what is glued after an address's domain
+    "Write to info at zaynafakemira.de for the files.": "Write to [email withheld] for the files.",
+    "Write to info at zaynafakemira.sy for the files.": "Write to [email withheld] for the files.",
+    "Please send the report to office at zaynafakemira.com.tr": "Please send the report to [email withheld]",
+    "Fake notes: ZFAKEMIRA2 at example.be holds the files.": "Fake notes: [email withheld] holds the files.",
+    "Fake notes: ZFAKEMIRA AT EXAMPLE.IT HAS THE DATA": "Fake notes: [email withheld] HAS THE DATA",
+    "Fake notes: ZFAKEMIRA AT example.Online has the data.": "Fake notes: [email withheld] has the data.",
+    "Her email is ZFAKEMIRA2 at Example.me, sent with the report.": "Her email is [email withheld], sent with the report.",
+    "Her email is zfakemira @ example.co.me for the files.": "Her email is [email withheld] for the files.",
+    "Fake notes: ZFAKEMIRA AT example.co.It if needed.": "Fake notes: [email withheld] if needed.",
+    "Fake notes: zfakemira2 @ example[.]com.lb holds the files.": "Fake notes: [email withheld] holds the files.",
+    "Who is zfakemira2 at example. fr sent the report": "Who is [email withheld] sent the report",
+    "Please contact zfakemira @ example .it if needed.": "Please contact [email withheld] if needed.",
     "Fake survey: data held by KZ3 at example.no.": "Fake survey: data held by [email withheld].",
 }
 # what a person types with an address's name before a link's scheme (a name's shape, or "at" written as no

@@ -971,3 +971,62 @@ def test_a_km_text_loses_an_address_whose_ending_is_also_a_word(text):
     for cleaned in (privacy.for_ai(text), privacy.for_download(text)):
         assert "fakemira" not in cleaned and "example" not in cleaned.lower(), cleaned
         assert privacy.EMAIL_WITHHELD in cleaned, cleaned
+
+
+# ------------------------------------------------------- the regression sweep against the pushed rules
+TOWNS_AS_SOURCES = {
+    "In Lebanon, Akar and Naameh 2020 found dropout.": f"In Lebanon, {W} and {W} 2020 found dropout.",
+    "Building on the work in Akar 2020, we asked girls why they left school.": (
+        f"Building on the work in {W} 2020, we asked girls why they left school."
+    ),
+    "The same pattern appears in Hasroun 2020 and in Akar 2016.": (
+        f"The same pattern appears in {W} 2020 and in {W} 2016."
+    ),
+    "Figures from Kousba 2019 show a rise in child labour.": f"Figures from {W} 2019 show a rise in child labour.",
+    "The figures given for Akar, 2016 were higher.": f"The figures given for {W}, 2016 were higher.",
+    "Girls in Naameh 2021 reported early marriage.": f"Girls in {W} 2021 reported early marriage.",
+    "(for Naameh, 2021)": f"(for {W}, 2021)",
+    "Numbers for Akar & Naameh, 2020 show dropout.": f"Numbers for {W} & {W}, 2020 show dropout.",
+    "Similar findings are reported for Naameh, 2021 and for Akar, 2020.": (
+        f"Similar findings are reported for {W}, 2021 and for {W}, 2020."
+    ),
+    "Jabal Mohsen (2020) found": f"{W} (2020) found",
+    "Jabal Mohsen et al. (2019) reported higher dropout.": f"{W} et al. (2019) reported higher dropout.",
+    "Deir Ammar (2019) reported that 30% of children worked.": f"{W} (2019) reported that 30% of children worked.",
+}
+TOWNS_AS_PLACES = (
+    "Dropout in Akar 2023 was high.",
+    "Numbers for Sayda, 2024 show a rise.",
+    "Compare child labour in Tyre, Qana and Houla 2024 with 2023",
+    "Enrolment fell in Akkar 2023 and in Akar 2016.",
+    "child labour (Jabal Mohsen 2023)",
+)
+
+
+def test_a_town_written_as_a_source_is_withheld_even_with_no_author_known():
+    """A town's spelling that is also a family name is a place only where a sentence writes it as one: a
+    citation's word before it ("the work in", "appears in", "figures from", "given for"), a source's verb
+    after its year ("2020 found", "2021 reported"), a parenthesis, "&" or a list that goes on from a source
+    make it a source's name, as the pushed rules withheld it, whoever the KM Database's authors are; so does
+    a place's name of several words in a source's form ("Jabal Mohsen et al.", "Deir Ammar (2019) reported"),
+    which stays a place before a bare year ("child labour (Jabal Mohsen 2023)")."""
+    for text, sent in TOWNS_AS_SOURCES.items():
+        assert privacy.for_ai(text) == sent, text
+        assert privacy.for_download(text) == sent, text
+    for text in TOWNS_AS_PLACES:
+        assert privacy.for_ai(text) == text, text
+
+
+def test_a_km_download_loses_a_codes_web_address_as_a_link():
+    """A code before "at" names no one, but its web address goes as a link in a download too (no link rule
+    reads it after), as the AI reads it; a code before a place and a sentence missing its space stays."""
+    for text, sent in {
+        "F09 at Example.Org": "F09 at [link withheld]",
+        "CE1 at Tyre.Net 2023": "CE1 at [link withheld] 2023",
+    }.items():
+        assert privacy.for_download(text) == sent, text
+        assert privacy.for_ai(text) == sent, text
+    assert (
+        privacy.for_download("Students of KZ3 at school.it was hot.")
+        == "Students of KZ3 at school.it was hot."
+    )

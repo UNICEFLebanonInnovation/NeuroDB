@@ -54,12 +54,19 @@ INVISIBLE = re.compile(
     "\U0001d173-\U0001d17a\U000e0001\U000e0020-\U000e007f\U000e0100-\U000e01ef]"
 )
 _AT_SIGN = "[@＠﹫]"  # with the full-width and the small at sign
+# a country's ending after a domain's: glued in lower case or in capitals ("example[.]com.lb", "example dot
+# gov.lb", "example. net.lb", "example[.]co.UK"), or after a full stop and a space as a phone's keyboard
+# writes it ("x@example.com. lb"; only the endings no sentence starts with in lower case): part of the
+# domain, never left after the address withheld ("[email withheld].lb")
+_COUNTRIES = "lb|fr|uk|de|ch|ca|ae|sa|qa|jo|eg|nl|se|au|io|sy|tr"
+_COUNTRY_SPACED = rf"\.\s(?-i:{_COUNTRIES})\b"
+_COUNTRY_AFTER = rf"\.(?-i:[a-z]{{2}}|[A-Z]{{2}})(?![\w-])|{_COUNTRY_SPACED}"
 # An address, also written with spaces around "@" ("layla.saab @ unicef.org", then only before a
 # domain that ends in letters: "2 trainers @ 50 USD" stays), with the sign in brackets ("x(@)y.org",
 # "x [@] y.org") or with the full-width or the small sign
 EMAIL = re.compile(
     rf"(?<![\w.+'-])[\w.+'-]+(?:{_AT_SIGN}|\s*(?:\[\s*{_AT_SIGN}\s*\]|\(\s*{_AT_SIGN}\s*\))\s*"
-    rf"|\s*{_AT_SIGN}\s*(?=[\w-]+(?:\.[\w-]+)*\.[^\W\d_]{{2,}}\b))[\w-]+(?:\.[\w-]+)+"
+    rf"|\s*{_AT_SIGN}\s*(?=[\w-]+(?:\.[\w-]+)*\.[^\W\d_]{{2,}}\b))[\w-]+(?:\.[\w-]+)+(?:{_COUNTRY_SPACED})?"
 )
 # An address written out to dodge a filter: "x.fake at example dot org", "x dot fake at example dot org",
 # "x.fake[at]example[.]org", "x.fake{at}example.org", "x.fake<at>example.org", "x.fake -at- example -dot-
@@ -93,7 +100,7 @@ _DOMAIN_DOT = (
     rf"|\s+point\s+(?=(?:{_ENDINGS}|{_SPELLED_ONLY}|mil|app|dev)\b))"
 )
 _ENDING = rf"(?:{_ENDINGS}|co\.[a-z]{{2}})(?:\.[a-z]{{2}})?"  # with a country's: "unicef.org.lb", "co.uk"
-_SPELLED_ENDING = rf"(?:{_ENDINGS}|co)(?:{_DOT}[a-z]{{2}})?"  # "unicef dot org dot lb"
+_SPELLED_ENDING = rf"(?:{_ENDINGS}|co)(?:{_DOT}[a-z]{{2}}|{_COUNTRY_AFTER})?"  # "unicef dot org dot lb"
 _DOMAIN = rf"[\w-]+(?:(?:{_DOMAIN_DOT}|\.)[\w-]+)*?"
 _LOCAL = rf"[\w.+'-]+(?:{_DOT}[\w.+'-]+)*"  # "layla.saab", "layla dot saab"
 _SPACED = r"[\w+'-]+(?:\s?\.\s?[\w+'-]+)*"  # "layla . saab"
@@ -107,8 +114,8 @@ SPELLED_EMAIL = re.compile(
     rf"|\b{_LOCAL}{_AT}{_DOMAIN}\s?\.(?-i:{_ENDING})\b"  # a space before the dot too ("x at example .org")
     rf"|\b[\w+'-]+(?:\.[\w+'-]+)+{_AT}{_DOMAIN}\.(?:{_ENDING})\b"
     rf"|\b[\w+'-]+(?:{_SPACED_DOT}[\w+'-]+)*{_AT}[\w-]+(?:{_SPACED_DOT}[\w-]+)*?{_SPACED_DOT}"
-    rf"(?-i:{_SPACED_ENDING})\b"
-    rf"|\b{_SPACED}\s?{_AT_SIGN}\s?[\w-]+(?:\s?\.\s?[\w-]+)*\s?\.\s?(?-i:{_SPACED_ENDING})\b"
+    rf"(?-i:{_SPACED_ENDING})\b(?:{_COUNTRY_AFTER})?"
+    rf"|\b{_SPACED}\s*{_AT_SIGN}\s*[\w-]+(?:\s?\.\s?[\w-]+)*\s?\.\s?(?-i:{_SPACED_ENDING})\b(?:{_COUNTRY_AFTER})?"
     # joined by dashes or by "_": "x-at-example-dot-org", "x_at_example_dot_org"
     rf"|(?<![\w.+'-])[\w.+']+(?:-[\w.+']+)*?-at-\w+(?:-dot-\w+)*-dot-(?:{_ENDINGS}|{_SPELLED_ONLY})\b"
     rf"|(?<![\w.+'-])[^\W_][\w.+']*?_at_[^\W_]+(?:_dot_[^\W_]+)*_dot_(?:{_ENDINGS}|{_SPELLED_ONLY})(?![^\W_])",
@@ -457,9 +464,10 @@ _SPACED_WORDS = "it|me"  # in lower case only: "at Halba. It was" is a sentence'
 WRITTEN_AT = re.compile(
     rf"(?<![\w.+'-]){_LOCAL_PART}(?P<at>{_AT_ANY})"
     rf"(?P<domain>(?=[\w-]*[^\W\d_])[\w-]+(?:{_SEPARATOR}[\w-]+)*{_SEPARATOR}[^\W\d_]{{2,24}}(?![\w-])"
-    rf"|[\w-]+(?:\s?\.\s?[\w-]+)*?\s?\.\s(?-i:{_SPACED_ANY})\b"
-    rf"|[\w-]+(?:\s?\.\s?[\w-]+)*?\s?\.\s(?:{_WEAK})\b"
-    rf"|[\w-]+(?:\s?\.\s?[\w-]+)*?\s?\.\s(?-i:{_SPACED_WORDS})\b)",
+    rf"(?:{_COUNTRY_SPACED})?"
+    rf"|[\w-]+(?:\s?\.\s?[\w-]+)*?\s?\.\s(?-i:{_SPACED_ANY})\b(?:{_COUNTRY_AFTER})?"
+    rf"|[\w-]+(?:\s?\.\s?[\w-]+)*?\s?\.\s(?:{_WEAK})\b(?:{_COUNTRY_AFTER})?"
+    rf"|[\w-]+(?:\s?\.\s?[\w-]+)*?\s?\.\s(?-i:{_SPACED_WORDS})\b(?:{_COUNTRY_AFTER})?)",
     re.IGNORECASE,
 )
 # what :data:`WRITTEN_AT` needs, besides "at": a dot right before letters, or before a space and an ending, or
@@ -525,7 +533,7 @@ MEASURE_WORDS = frozenset(
     | {"gaps", "increase", "decrease", "growth", "decline", "progress", "outcome", "outcomes", "indicator"}
     | {"indicators", "target", "targets", "baseline", "funding", "spending", "budget", "budgets"}
     | {"ger", "ner", "gpi", "oosc", "finding", "findings", "partner", "partners", "pupil", "pupils", "case"}
-    | {"cases", "incident", "incidents", "refugees", "learners"}
+    | {"cases", "incident", "incidents", "refugees", "learners", "monitoring", "status", "situation"}
 )
 # what a report or a question says happened there, and its plain nouns, before "at" ("What happened at
 # halba.it was", "Which issues were reported at halba.in 2023?", "how many schools were visited at
@@ -584,6 +592,8 @@ _NOT_A_NAME = re.compile(
     r"|cp|ce|cm|ms|gs|bt|ts|lt|bp|bln|alp|ece|nfe)"  # grades, programmes: "CE2", "CM1", "BT2", "BLN2", "ALP1"
     r"-?\d{1,3}[a-z]?|covid-?19|h\d{1,2}n\d{1,2}"  # "KG2", "EB6" (grades), "room-2", "COVID-19", "H1N1"
     r"|lcrp-?\d{4}"  # a plan's year ("LCRP2023")
+    # a school, fiscal or academic year, a programme document's, a month's ("SY2024", "PD2023", "Mar2024")
+    r"|(?:sy|fy|ay|pd|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)-?(?:19|20)\d{2}"
     r"|\d{1,2}[a-z]|(?-i:[A-Z]\d{1,2})|v\d{1,3}(?:\.\d{1,3})+",  # a class ("4b", "9B", "B2"), "v2.0"
     re.IGNORECASE,
 )
@@ -788,7 +798,7 @@ def _ending(label: str, spelled: bool, reading: _Reading, labels: int = 1, stop:
     if folded in NOT_ENDINGS:
         return False
     if not label.islower() and not (
-        reading.typed or reading.strong or reading.coded or reading.addressed(stop)
+        reading.typed or reading.strong or reading.coded or reading.addressed(stop) or reading.foreign(stop)
     ):
         return label.isupper() and _capital_ending(label, folded, spelled, reading, stop)
     if folded in ORDINARY:
@@ -797,10 +807,12 @@ def _ending(label: str, spelled: bool, reading: _Reading, labels: int = 1, stop:
         if folded in GOES_ON_ENDINGS:  # ".how", ".who"
             return reading.named or reading.addressy or reading.addressed(stop)
         if folded in _NOUN_ENDINGS:  # ".school", ".health"
-            if reading.addressy or reading.addressed(stop):
+            if reading.addressy or reading.addressed(stop) or reading.foreign(stop):
                 return True
             return reading.named and (reading.typed or reading.follows(stop))
-        return False
+        # a word of a sentence's grammar (".now", ".all", ".out"): after a word that may name someone in what
+        # a person typed, after an address's name, or before a domain no sentence writes (``reading.foreign``)
+        return (reading.typed and reading.named) or reading.strong or reading.foreign(stop)
     if reading.plain and labels < 2 and folded in GOES_ON:  # ".ok", ".thanks", ".show", ".total"
         return reading.named
     return not spelled or len(label) <= 3 or (reading.shaped and not reading.plain)
@@ -809,7 +821,7 @@ def _ending(label: str, spelled: bool, reading: _Reading, labels: int = 1, stop:
 def _sentence_word(label: str, spelled: bool, reading: _Reading, stop: int) -> bool:
     """Whether a word of two letters of a sentence ("it", "no", "be", "in") ends an address's domain (see
     :func:`_ending`)."""
-    if reading.typed or reading.strong or (reading.caps and label.islower()):
+    if reading.typed or reading.strong or (reading.caps and label.islower()) or reading.foreign(stop):
         return True
     if reading.coded:
         return reading.written_to() or reading.follows(stop)
@@ -860,7 +872,7 @@ def _domain_end(domain: str, reading: _Reading) -> int:
         label = domain[seps[i].end() : stop]
         folded = fold(label)
         if _SPACED_SEP.fullmatch(seps[i].group()) and (label in SPACED_STARTERS or folded in WEAK_ENDINGS):
-            if not reading.spaced(stop, label):
+            if not (reading.spaced(stop, label) or reading.foreign(stop)):
                 continue
         elif (
             i == 0
@@ -878,15 +890,25 @@ def _domain_end(domain: str, reading: _Reading) -> int:
     return 0
 
 
-def spelled_out(match: re.Match, typed: bool = False, links: bool = True) -> str:
+def spelled_out(match: re.Match, typed: bool = False, links: bool = True, link_rule: bool = True) -> str:
     """What a :data:`SPELLED_EMAIL` match is replaced by: :data:`EMAIL_WITHHELD`; or, after one word that
     names no one (:func:`keeps`: "children at example.org", "available at www.unicef.org/lebanon"), in what a
     person typed (``typed``) or in a record's text (``links``), only the domain as a link: withheld here
     ("children at [link withheld]") in typed text or when its dot is spelled out, else left to the link rule,
-    which takes its path too ("available at [link withheld]")."""
+    which takes its path too ("available at [link withheld]"), or here when no link rule follows
+    (``link_rule`` false: a document sent whole). A role's mailbox written to or opening the text
+    (:func:`_role`: "write to info at example.org") is an address's name, and a "point" after a sentence's
+    word is no dot (:func:`_sentence_point`)."""
+    if _sentence_point(match.group(0)):
+        return match.group(0)
     word = _PLAIN_WORD_AT.match(match.group(0))
-    if word and (typed or links) and keeps(word.group(1)):
-        if typed or _spelled(match.group(0)[word.end() :]):
+    if (
+        word
+        and (typed or links)
+        and keeps(word.group(1))
+        and not _role(word.group(1), match.string, match.start())
+    ):
+        if typed or not link_rule or _spelled(match.group(0)[word.end() :]):
             return f"{word.group(1)}{word.group(2)}{LINK_WITHHELD}"
         return match.group(0)
     return EMAIL_WITHHELD
@@ -909,7 +931,12 @@ class _Reading:
     (:func:`_follows_address`); ``written_to``, whether a word that writes to the name comes before it
     (:func:`_writes_to`); ``addressed``, in a record's text, whether a plain word that may name someone is
     written to and what follows the label follows an address ("write to x at example.no before June");
-    ``mixed``, whether a word in lower case follows the label."""
+    ``mixed``, whether a word in lower case follows the label; ``foreign``, whether a name-like word (in
+    capitals, "X AT" or "X at", of capitals and digits, :func:`_coded`, with an address's name's shape, one
+    that may name someone in what a person typed, or before an at sign) that names no one known stands before
+    a domain whose words before the label no sentence writes (:func:`_foreign`: "X AT EXAMPLE.IT HAS THE
+    DATA", "X2 at example.be has the data", "x2 at example. fr sent the report", "x @ example .it if needed";
+    "KZ3 at school.it was hot", "QX12 at Halba.No teachers came", "Training @ Halba. Info session" stay)."""
 
     typed: bool
     shaped: bool
@@ -926,24 +953,38 @@ class _Reading:
     written_to: Callable[[], bool]
     addressed: Callable[[int], bool]
     mixed: Callable[[int], bool]
+    foreign: Callable[[int], bool]
 
 
-def written_out(match: re.Match, typed: bool = False, links: bool = True) -> str:
+def written_out(match: re.Match, typed: bool = False, links: bool = True, link_rule: bool = True) -> str:
     """What a :data:`WRITTEN_AT` match is replaced by: :data:`EMAIL_WITHHELD` when the domain ends as an
-    address's does (:func:`_domain_end`; what follows it stays: "x.y at example.org.It was") and the word
-    before "at" is a name (:func:`named`; in a record's text a plain word that is written to, when what
-    follows follows an address: "write to x at example.no before June") or the dot is spelled out; the domain
-    as a link after a word that names no one, as :func:`spelled_out`: in what a person typed only when it is a
-    web address's (:func:`_a_link`: "info at [link withheld]"; "visits at mt.lebanon", "red flags at
-    akkar.district" stay), in a record's text when the link rule does not take it (:func:`_left_to_links`:
-    "Contact us at example.de"); else the match as it is ("published at Example.Org")."""
+    address's does (:func:`_domain_end`; what is glued after it goes with it: "x.y at example.org.It was",
+    "x at example.co.It", "x at mail.example.me") and the word before "at" is a name (:func:`named`; in a
+    record's text a plain word that is written to, when what follows follows an address: "write to x at
+    example.no before June"), a role's mailbox written to or opening the text (:func:`_role`: "write to info
+    at example.it"), a code written to before a domain no sentence writes ("write to KG2 at example.it for the
+    files") or the dot is spelled out; the domain as a link after a word that names no one, or a code, as
+    :func:`spelled_out`: in what a person typed only when it is a web address's (:func:`_a_link`: "children at
+    [link withheld]"; "visits at mt.lebanon", "red flags at akkar.district" stay), in a record's text when the
+    link rule does not take it (:func:`_left_to_links`: "Contact us at example.de"), or here when no link rule
+    follows (``link_rule`` false, a document sent whole; ``links`` false, a KM Database's download); else the
+    match as it is ("published at Example.Org"). A "point" after a sentence's word is no dot
+    (:func:`_sentence_point`)."""
     domain, local, at = match.group("domain"), match.group("local"), match.group("at")
+    if _sentence_point(domain, whole=False):
+        return match.group(0)
     text, start = match.string, match.start("domain")
     plain_at = bool(_PLAIN_AT.fullmatch(at))
     name_like = shaped(local) or not plain_at
     record_shaped = _record_shaped(local) or not plain_at
     caps = local.isupper() and "AT" in at
-    common = _typed_keeps(local) if typed else keeps(local)
+
+    @functools.cache
+    def writes_to() -> bool:
+        return _writes_to(text, match.start())
+
+    role = _role(local, text, match.start(), writes_to)
+    common = not role and (_typed_keeps(local) if typed else keeps(local))
     code = bool(_NOT_A_NAME.fullmatch(local))
     coded = _record_shaped(local) and _coded(local)
     odd_at = not (plain_at or at.strip() in _AT_SIGNS)
@@ -951,15 +992,23 @@ def written_out(match: re.Match, typed: bool = False, links: bool = True) -> str
     # in what a person typed, a word that may name someone: what a sentence says of an address may follow it
     names = typed and not common and not code
 
-    @functools.cache
-    def writes_to() -> bool:
-        return _writes_to(text, match.start())
-
     def follows(stop: int) -> bool:
         return _follows_address(text, start + stop, writes_to, names)
 
     def addressed(stop: int) -> bool:
-        return not typed and plain_at and not common and not code and writes_to() and follows(stop)
+        # a word that may name someone, written to, before what follows an address: in a record's text a
+        # plain word, in any text a code before a domain no sentence writes ("write to KG2 at example.it")
+        if not plain_at or common or not writes_to() or not follows(stop):
+            return False
+        return _foreign(domain[:stop]) if code else not typed
+
+    def foreign(stop: int) -> bool:
+        # a name-like word (in capitals, with a digit, "_" or a full stop, a word that may name someone in
+        # what a person typed, or before an at sign) before a domain no sentence writes ("x2 at example. fr
+        # sent the report", "x @ example .it if needed"; "Training @ Halba. Info session", "Mar2024 at Akkar.
+        # NGO" stay)
+        name_like = caps or coded or local.isupper() or record_shaped or names or at.strip() in _AT_SIGNS
+        return name_like and not common and not code and _foreign(domain[:stop])
 
     def spaced(stop: int, label: str) -> bool:
         goes_on = functools.partial(_sentence_goes_on, text, start + stop)
@@ -993,26 +1042,134 @@ def written_out(match: re.Match, typed: bool = False, links: bool = True) -> str
         written_to=writes_to,
         addressed=addressed,
         mixed=mixed,
+        foreign=foreign,
     )
+    # no link rule reads the text after this one (what a person typed is read here; a document sent whole and
+    # a KM Database's download are read by no link rule): a web address after a word that names no one goes
+    # here, as a link, or stays
+    here = typed or not link_rule or not links
     end = _domain_end(domain, reading)
     if not end:
+        # a code's web address that the link rule takes ("How many Session2 at SCHOOL.Net"): as a link
+        whole = len(domain)
+        if here and code and plain_at and _link_rules(domain, text, start + whole, lambda: follows(whole)):
+            return f"{local}{at}{LINK_WITHHELD}"
         return match.group(0)
     rest = domain[end:]
     spelled = _spelled(domain[:end])
-    if (typed or links) and plain_at and common:
-        if typed and not spelled and not _a_link(domain[:end], text, start + end, lambda: follows(end)):
+    # a code names no one ("How many G5 at Tyre.Gov", "F09 at Example.Org"): its web address goes as a link
+    # where no link rule follows, as after a common word; written to before a domain no sentence writes, or
+    # with its dot spelled out, it is an address's name ("write to KG2 at example.it for the files")
+    code_link = code and here and not spelled and not addressed(end)
+    if (typed or links) and plain_at and (common or code_link):
+        if here and not spelled and not _a_link(domain[:end], text, start + end, lambda: follows(end)):
             return match.group(0)
-        if typed or spelled or not _left_to_links(domain[:end], text, start + end, lambda: follows(end)):
+        if here or spelled or not _left_to_links(domain[:end], text, start + end, lambda: follows(end)):
             return f"{local}{at}{LINK_WITHHELD}{rest}"
         return match.group(0)
-    if spelled or named(local, at, typed) or addressed(end):
-        return f"{EMAIL_WITHHELD}{rest}"
+    if spelled or role or named(local, at, typed) or addressed(end):
+        return f"{EMAIL_WITHHELD}{_GLUED_LABELS.sub('', rest, count=1)}"
+    if code_link and plain_at and _link_rules(domain[:end], text, start + end, lambda: follows(end)):
+        # the KM Database's rule, which no link rule follows in a download: a code's web address that the link
+        # rule takes goes as a link, as it does in what the AI reads ("F09 at [link withheld]")
+        return f"{local}{at}{LINK_WITHHELD}{rest}"
     return match.group(0)
+
+
+def _link_rules(domain: str, text: str, end: int, follows: Callable[[], bool]) -> bool:
+    """Whether ``domain`` is a web address (:func:`_a_link`) that the link rule takes (:func:`_left_to_links`:
+    "Example.Org", "Tyre.Net", "unicef.org"; not "Halba.Fr", "Tyre. gov")."""
+    return _a_link(domain, text, end, follows) and _left_to_links(domain, text, end, follows)
+
+
+# what is glued after an address's domain withheld (".It", ".me", ".SHOW"): part of it ("x at example.co.It",
+# "x at mail.example.me", "x.y at example.org.It was")
+_GLUED_LABELS = re.compile(r"^(?:\.[^\W\d_]{2,24}(?![\w-]))+")
+# the same left after the placeholder, past where a pattern could read the domain ("x
+# @pytest.mark.parts_may_fail" read up to "mark": "[email withheld].parts_may_fail")
+_GLUED_AFTER = re.compile(rf"(?<={re.escape(EMAIL_WITHHELD)})(?:\.(?=[\w-]*[^\W\d_])[\w-]+)+")
+
+
+def glued_after(text: str) -> str:
+    """``text`` without what is glued after an address withheld (:data:`_GLUED_AFTER`)."""
+    return _GLUED_AFTER.sub("", text) if f"{EMAIL_WITHHELD}." in text else text
+
+
+# the mailboxes of a role, office or service ("info", "data", "office", "contact"): an address's name before
+# "at" and a domain when a word that writes to one comes before them ("write to info at example.org", "send it
+# to data at example.sy", "contact info at example.sy") or they open the text ("data at example.online"); a
+# word of the page after another word ("for more info at [link withheld]", "the data at [link withheld]")
+ROLE_NAMES = frozenset(
+    {"info", "data", "office", "contact", "contacts", "admin", "support", "hello", "enquiries", "inquiries"}
+    | {"enquiry", "inquiry", "mail", "press", "media", "hr", "jobs", "careers", "secretariat", "registry"}
+    | {"helpdesk", "noreply", "reception", "accounts", "finance", "procurement", "webmaster", "postmaster"}
+    | {"communications", "partnerships"}
+)
+_OPENS = " \t\n\"'([{:;,-\u2013\u2014\u2018\u201c"
+
+
+def _role(local: str, text: str, start: int, writes_to: Callable[[], bool] | None = None) -> bool:
+    """Whether ``local``, written at ``start`` of ``text`` before "at", is a role's mailbox written to or
+    opening the text (:data:`ROLE_NAMES`)."""
+    if fold(local) not in ROLE_NAMES:
+        return False
+    if not text[:start].strip(_OPENS):
+        return True
+    return writes_to() if writes_to is not None else _writes_to(text, start)
+
+
+# the one-word spellings of towns that are also family names, as a domain's word after "at" in a sentence
+# missing its space ("how many ZM2 at saida.it was closed"): a place there (:func:`_foreign`)
+TOWN_WORDS = frozenset(
+    "saida sayda naameh qana houla anjar khiam majdal saadnayel akar aakar kousba hasroun qobayat bint "
+    "jounieh sour batroun nabatiye nabatiyeh marjayoun hermel zgharta koura".split()
+)
+
+
+def _sentence_label(label: str) -> bool:
+    """Whether ``label``, a word of a domain before its ending, is a word a sentence writes: a common or a
+    request's word (:data:`KEEPS`, :data:`COMMON_WORDS`, :data:`GOES_ON`), a place (:data:`MAIN_PLACE_WORDS`,
+    :data:`TOWN_WORDS`), a code (:data:`_NOT_A_NAME`) or a letter."""
+    folded = fold(label)
+    return (
+        len(folded) < 2
+        or folded in KEEPS
+        or folded in COMMON_WORDS
+        or folded in GOES_ON
+        or folded in MAIN_PLACE_WORDS
+        or folded in TOWN_WORDS
+        or bool(_NOT_A_NAME.fullmatch(label))
+    )
+
+
+_AT_ANY_RE = re.compile(_AT_ANY, re.IGNORECASE)
+_WORD_POINT = re.compile(r"([^\W\d_][\w'-]*)\s+point\s", re.IGNORECASE)
+
+
+def _sentence_point(written: str, whole: bool = True) -> bool:
+    """Whether "point" in ``written`` (a match, or with ``whole`` false its domain only) is a sentence's word,
+    not a dot spelled out in French: the word before it is a sentence's (:func:`_sentence_label`: "at this
+    point co-ordination", "at the point eg the gate", "at baseline point net of dropouts", "at school point
+    de vue"; "x arobase example point org" is an address)."""
+    if "point" not in written.lower():
+        return False
+    if whole:
+        at = _AT_ANY_RE.search(written)
+        written = written[at.end() :] if at else written
+    return any(_sentence_label(m.group(1)) for m in _WORD_POINT.finditer(written))
+
+
+def _foreign(domain: str) -> bool:
+    """Whether ``domain`` (up to its ending) holds a word before its ending that no sentence writes
+    (:func:`_sentence_label`: "example.it", "zaynafakemira.be"; "school.it", "Halba.No", "akkar.so" are a
+    sentence missing its space)."""
+    labels = _LABEL_SEP.split(domain)[:-1]
+    return any(label and not _sentence_label(label) for label in labels)
 
 
 def _a_link(domain: str, text: str, end: int, follows: Callable[[], bool]) -> bool:
     """Whether ``domain``, written after a word that names no one and "at" in what a person typed, is a web
-    address's (a role's address, "info at example.online", is one or the other: never sent): a known ending
+    address's (a role's mailbox written to is an address's name, :func:`_role`): a known ending
     (:data:`KNOWN_ENDINGS`), "www.", a path, a port or a query after it (``end``, where it ends in ``text``),
     a newer ending (:data:`NEW_ENDINGS`: ".online", ".tech", ".blog"), or a country's of two letters (".sy",
     ".tv"; ".it", ".in", ".be" only when what follows it follows an address, ``follows``: "write to info at
@@ -1152,7 +1309,7 @@ def without_paths(text: str) -> str:
     return _PATH_LEFT.sub(r"\1", text) if "withheld]" in text else text
 
 
-def withhold_addresses(text: str, typed: bool = False, links: bool = True) -> str:
+def withhold_addresses(text: str, typed: bool = False, links: bool = True, link_rule: bool = True) -> str:
     """``text`` with its e-mail addresses withheld (``EMAIL``), written out too (``SPELLED_EMAIL`` and
     :data:`WRITTEN_AT`: :func:`spelled_out`, :func:`written_out`), and what is left of a path after one
     (:func:`without_paths`: "x at example.org/staff/name"). Without ``typed``, the record rule: a sentence
@@ -1163,16 +1320,22 @@ def withhold_addresses(text: str, typed: bool = False, links: bool = True) -> st
     person typed: use :func:`without_addresses`): any word but one that names no one goes with the domain
     after "at", and such a word keeps its place, the domain withheld as a link ("children at [link
     withheld]"). In a record's text, an address's name before "at" and a link with its scheme goes with the
-    link (:func:`withhold_schemed`: "x.y at https://example.org")."""
+    link (:func:`withhold_schemed`: "x.y at https://example.org"). ``link_rule`` false (a document sent whole,
+    which no link rule reads after): a web address after a word that names no one goes here as a link
+    ("Contact us at [link withheld]")."""
     if any(sign in text for sign in _AT_SIGNS):
         text = EMAIL.sub(EMAIL_WITHHELD, text)
     if not _SPELLED_AT.search(text):
         return without_paths(text)
     if _SPELLED_HINT.search(text):
-        text = SPELLED_EMAIL.sub(functools.partial(spelled_out, typed=typed, links=links), text)
+        text = SPELLED_EMAIL.sub(
+            functools.partial(spelled_out, typed=typed, links=links, link_rule=link_rule), text
+        )
     if DOTTED.search(text):
-        text = WRITTEN_AT.sub(functools.partial(written_out, typed=typed, links=links), text)
-    return without_paths(text if typed else withhold_schemed(text))
+        text = WRITTEN_AT.sub(
+            functools.partial(written_out, typed=typed, links=links, link_rule=link_rule), text
+        )
+    return without_paths(glued_after(text if typed else withhold_schemed(text)))
 
 
 def withhold_schemed(text: str) -> str:
@@ -1219,13 +1382,22 @@ def withheld_address(text: str) -> bool:
     return without_addresses(text).count(EMAIL_WITHHELD) > (text or "").count(EMAIL_WITHHELD)
 
 
+def withheld_typed(text: str) -> bool:
+    """Whether ``text``, read as a person typed it (:func:`without_addresses`), holds an e-mail address or a
+    web address written after a word and "at" that the typed rule withholds ("children at [link withheld]"):
+    what a filter's search words and a page's address must not keep."""
+    cleaned, raw = without_addresses(text), text or ""
+    return any(cleaned.count(mark) > raw.count(mark) for mark in (EMAIL_WITHHELD, LINK_WITHHELD))
+
+
 def without_emails(text: str) -> str:
     """A document's or a code-written text sent whole (a document to review or summarise, a report's pages,
     a daily review finding, a What's new line): its e-mail addresses withheld, written out too, by the
-    record rule (:func:`withhold_addresses`, read without the characters nobody sees); a text that holds
+    record rule (:func:`withhold_addresses`, read without the characters nobody sees), and a web address
+    after a word and "at" as a link (no link rule follows: "Contact us at [link withheld]"); a text that holds
     none is sent exactly as it is."""
     shown = visible(text or "")
-    cleaned = withhold_addresses(shown)
+    cleaned = withhold_addresses(shown, link_rule=False)
     return text if cleaned == shown else cleaned
 
 

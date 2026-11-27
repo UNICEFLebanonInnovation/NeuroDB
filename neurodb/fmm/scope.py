@@ -137,13 +137,13 @@ _ISSUE = re.compile(r"^(R\d{1,3}):([a-z0-9_:,]{1,40})$")
 
 
 def searched(q: str) -> str:
-    """The search words as a filter holds them: an e-mail address the person wrote in them, in any form,
-    withheld (``watch.people.without_addresses``, the rule for typed text; before they are cut to
-    ``Q_CHARS``, so that no cut leaves part of one), so that no filter kept (a chat
-    question's, a brief's), sent to the AI (the dashboard's address a look-up returns, the filter's words) or
-    shown holds one. No visit's search text holds an address (labels, references, partners, places), so the
-    search finds the same visits."""
-    if not q or not people.withheld_address(q):
+    """The search words as a filter holds them: an e-mail address the person wrote in them, in any form, and
+    a web address written after a word and "at" ("children at [link withheld]"), withheld
+    (``watch.people.without_addresses``, the rule for typed text; before they are cut to ``Q_CHARS``, so that
+    no cut leaves part of one), so that no filter kept (a chat question's, a brief's), sent to the AI (the
+    dashboard's address a look-up returns, the filter's words) or shown holds one. No visit's search text
+    holds an address (labels, references, partners, places), so the search finds the same visits."""
+    if not q or not people.withheld_typed(q):
         return q
     return people.without_addresses(q)
 

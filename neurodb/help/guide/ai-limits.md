@@ -65,14 +65,17 @@ address.
   another alphabet) or with characters nobody sees; the word before "at" and a web address goes too, unless it
   names no one ("children at [link withheld]", "the dashboard at [link withheld]"). After such a word, a
   site's address goes as a link when it has a known ending, a newer one (".online", ".tech", ".blog") or a
-  country's (".sy", ".tv"), a path or a port: "write to info at [link withheld]". A full link (one that starts
+  country's (".sy", ".tv"), a path or a port: "for more info at [link withheld]"; a role's mailbox written to
+  ("write to info at ...", "send it to data at ...") is part of the address and goes whole, and so does what
+  is glued after an address ("x at example.co.It", "x at example dot gov.lb"). A full link (one that starts
   with "https", "http", "mailto" or "//", also mistyped or defanged: "http//", "htps://", "hxxps[:]//") is
   never an e-mail address: the word before it stays ("the red flag at [link withheld]") unless it is shaped
   like an address's name ("x.y at" a full link). A mistyped ending ("x at example.ogr", "x at example.con") or
   one that is also a word, in any case, goes like any other after a word that may name someone, whatever
   follows it ("x at example.today", "x at example.school", "x at example.ok", "x at example.show the files",
-  "x at EXAMPLE.NO", "x at Example.Online"); "point" in French for the dot too ("x arobase example point
-  org"). The word before "at" decides: after a word that names no one (also what a report says happened there,
+  "x at EXAMPLE.NO", "x at Example.Online", "x at example.now"); "point" in French for the dot too ("x
+  arobase example point org"; "at this point co-ordination" stays). The word before "at" decides: after a word
+  that names no one (also what a report says happened there,
   "reported", "happened", "visited", "closed", "took place"..., and one of Lebanon's governorates, districts
   and main towns), a sentence missing its space after a place stays ("how many schools were visited at
   zahle.thanks", "What was reported at halba.who is responsible?", "The AP was closed at Akkar.No evidence

@@ -663,8 +663,9 @@ def clean_written(
         # "published at Example.Org" stays)
         if people.DOTTED.search(text):
             text = _on_one_line(people.WRITTEN_AT.sub(written, text), people.WRITTEN_AT.finditer, written)
-        # an address's name before a link with its scheme ("x.y at https://example.org") goes with the link
-        text = people.without_paths(people.withhold_schemed(text))
+        # an address's name before a link with its scheme ("x.y at https://example.org") goes with the link,
+        # and what is glued after an address withheld goes with it ("[email withheld].parts_may_fail")
+        text = people.without_paths(people.glued_after(people.withhold_schemed(text)))
     # redact.text without putting the text on one line: addresses first (an address holds a domain),
     # links, then the names
     text = people.EMAIL.sub(people.EMAIL_WITHHELD, text)

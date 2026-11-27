@@ -333,14 +333,15 @@ def _safe_url(value: Any) -> bool:
 
 def _page_query_holds_address(text: str) -> bool:
     """Whether a NeuroDB page's address (``/fmm/?q=...``) holds an e-mail address in its query, read as it is
-    written ("+" a space, "%5B" a bracket) and as typed text (``watch.people.withheld_address``: the search
-    words are the person's)."""
+    written ("+" a space, "%5B" a bracket) and as typed text (``watch.people.withheld_typed``: the search
+    words are the person's), or a web address the typed rule withholds after a word and "at" ("children at
+    example.org")."""
     from urllib.parse import parse_qsl, urlsplit
 
     if not text.startswith(SITE_PATHS) or "?" not in text:
         return False
     values = [value for _key, value in parse_qsl(urlsplit(text).query, keep_blank_values=True)]
-    return any(people.EMAIL.search(v) or people.withheld_address(v) for v in values)
+    return any(people.EMAIL.search(v) or people.withheld_typed(v) for v in values)
 
 
 def _refilter(value: Any, names_: frozenset[str], urls: set[str]) -> Any:

@@ -202,8 +202,10 @@ download the findings it read.
   Nayel", "Tal Abbas", "Bar Elias"), is kept as a place only before a year after "in", "for" or "from" ("in
   Saida 2023", "numbers for Sayda, 2024", "in Tyre, Qana and Houla 2024"), and never when it is the surname of
   one of the KM Database's authors; written as a citation ("Naameh (2021)", "Naameh et al.", "Saad Nayel et
-  al.", "from Akar & Naameh 2020", "As reported in Naameh 2021", "Similar results were found in Naameh 2021",
-  "Table adapted from Naameh 2021", "According to Naameh 2021", "Sources: Akar 2018; Naameh 2021", "in Naameh
+  al.", "Jabal Mohsen et al.", "from Akar & Naameh 2020", "As reported in Naameh 2021", "Similar results were
+  found in Naameh 2021", "Akar and Naameh 2020 found", "Building on the work in Akar 2020", "Figures from
+  Kousba 2019", "(for Naameh, 2021)", "Table adapted from Naameh 2021", "According to Naameh 2021", "Sources:
+  Akar 2018; Naameh 2021", "in Naameh
   2021a", "in Naameh 2021, p. 12") it is a name. So is a person quoted with an age ("“…,” said Fakename, 14",
   "In an interview, Fakename, 14,") and a name before a year where the word is no event or topic ("Storm 2021
   (Lebanon)"; "Cholera 2022 (Bebnine)" stays). An e-mail address is taken out whole, also when it is written

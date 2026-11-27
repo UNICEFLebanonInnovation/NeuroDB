@@ -1370,6 +1370,16 @@ def test_a_search_never_finds_a_part_of_an_address_withheld_after_a_dot_and_a_sp
                 assert around == (needle in whole), (dataset, needle, text)
 
 
+def test_what_is_glued_after_an_address_goes_with_it():
+    """The regression sweep: an address read up to where a pattern stops ("x @pytest.mark" before
+    ".parts_may_fail") loses what is glued after it too, as the pushed rules withheld it."""
+    text = "Mark the test @pytest.mark.parts_may_fail when a refused part is what it checks."
+    assert (
+        query.clean_written(text, frozenset())
+        == "Mark the [email withheld] when a refused part is what it checks."
+    )
+
+
 def test_the_benchmark_search_and_filters_stay_fast(point):
     """Not a measure of production: a guard that a search, a status equality and a sort on a few
     thousand records do not slow down by orders of magnitude (the full benchmark runs outside the suite)."""

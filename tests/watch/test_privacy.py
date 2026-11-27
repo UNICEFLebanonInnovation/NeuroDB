@@ -661,3 +661,42 @@ def test_a_record_text_loses_a_domain_the_link_rule_does_not_know_as_a_link():
         "Do not open [link withheld] today"
     )
     assert redact.LINK.sub(redact.LINK_WITHHELD, "See example[.]org for it") == "See [link withheld] for it"
+
+
+def test_what_the_pushed_rules_withheld_stays_withheld():
+    """The regression sweep against the pushed rules (every corpus text through every path, compared word by
+    word): a document sent whole, which no link rule reads after, loses a web address written after a word
+    and "at" as a link, a code's too; what is glued after an address withheld goes with it; a sentence's
+    "point" is no French dot; a filter's search words and a page's address read a web address after "at" the
+    typed rule withholds."""
+    for text, sent in {
+        "Contact us at zaynafakemira.org for the files.": "Contact us at [link withheld] for the files.",
+        "How many Session2 at SCHOOL.Net many visits": "How many Session2 at [link withheld] many visits",
+        "x.y at example.org.It was": "[email withheld] was",
+        "Fake notes: ZFAKEMIRA AT example.co.SHOW is the focal point": (
+            "Fake notes: [email withheld] is the focal point"
+        ),
+    }.items():
+        assert people.without_emails(text) == sent, text
+    assert (
+        people.glued_after("Mark the [email withheld].parts_may_fail now.")
+        == "Mark the [email withheld] now."
+    )
+    assert (
+        people.glued_after("Write to [email withheld]. It was sent.")
+        == "Write to [email withheld]. It was sent."
+    )
+    for text in (
+        "Problems at this point co-ordination with partners is weak",
+        "We arrived at the point eg the school gate",
+        "Attendance at baseline point net of dropouts",
+        "Children at school point de vue des parents",
+    ):
+        assert people.without_addresses(text) == text, text
+        assert people.without_emails(text) == text, text
+        assert redact.text(text, 500, frozenset()) == text, text
+    assert people.without_addresses("zfakemira at example point org") == "[email withheld]"
+    assert people.withheld_typed("children at example.org") and not people.withheld_address(
+        "children at example.org"
+    )
+    assert not people.withheld_typed("How many visits at Halba had red flags?")
