@@ -9,10 +9,13 @@ list of the people it knows, which no KM text is compared with, and nothing is a
   2020)", "(Doe 2002 methodology)", "(FAKEORG, Doe and Roe 2020)", "Roe (2018) found", "Doe, 2019", "Doe and
   Roe 2020", "in Doe 2016" lose the names, and so does the same name wherever else that text writes it
   ("Doe 2016 (Lebanon) relates"). A "name" here is one to three capitalised words; it is kept when it is an
-  organisation (:func:`neurodb.km.authors.org_test`), a month, a season, a word of time, a place (every
-  governorate, district, town and region of :mod:`neurodb.km.places`, a name of several words written whole:
-  "in Saida 2023", "for Bab al-Tabbaneh 2024", never "Elias" alone; not the camps, whose names are family
-  names too) or a common word ("(February 2023)", "(Since 2019)", "Lebanon (2020)", "(Census 2019)"), holds a
+  organisation (:func:`neurodb.km.authors.org_test`), a month, a season, a word of time, a place (a country,
+  a governorate, a district or a main town; a place's name of several words of :mod:`neurodb.km.places`
+  written whole: "Bab al-Tabbaneh 2024", never "Elias" alone; a town's or a district's other one-word
+  spellings, which are family names too, only after a word that writes a place: "in Saida 2023", "numbers
+  for Sayda, 2024", while "(Naameh 2021)", "Naameh (2021) found", "– Sayda, 14" and an author "Naameh, R."
+  are names; not the camps) or a common word ("(February 2023)", "(Since 2019)", "Lebanon (2020)", "(Census
+  2019)"), holds a
   generic word of a title ("Response Plan (2020)") or is an acronym such as "FaSyR". Outside a parenthesis,
   one name before a year ("Since 2019") is not taken for a citation.
 - **Interview speakers** ("… – Fakename, 34", "(Fakename, 15)") lose the first name, not a role ("(Mother,
@@ -92,14 +95,18 @@ def _place_names() -> tuple[frozenset[str], frozenset[tuple[str, ...]]]:
 
 PLACE_NAMES_ONE, PLACE_NAMES = _place_names()
 PLACE_LONGEST = max(len(name) for name in PLACE_NAMES)
-PLACE_WORDS = PLACE_NAMES_ONE | frozenset(
+# the words of places that are never a person's (a name-shaped span of these is kept wherever it is written:
+# "Lebanon (2020)", "Tripoli, 2019"); a town's or a district's one-word spelling of places.py
+# (:data:`PLACE_NAMES_ONE`: "Saida", "Sayda", "Naameh", "Houla") is a family name too, kept only where it is
+# written as a place (:func:`_as_place`)
+PLACE_WORDS = frozenset(
     # the area and the donors' countries
     "lebanon syria jordan iraq palestine turkey turkiye egypt cyprus israel gaza yemen libya sudan iran "
     "kuwait qatar saudi arabia emirates uae oman bahrain arab mena middle east west north south africa asia "
     "europe european union united kingdom states america usa us uk britain france germany italy spain "
     "netherlands norway sweden denmark finland switzerland austria belgium ireland luxembourg canada japan "
     "korea australia "
-    # Lebanon's governorates, districts and main towns (every spelling of places.py is added above)
+    # Lebanon's governorates, districts and main towns
     "beirut mount akkar baalbek baalbeck hermel bekaa beqaa nabatieh nabatiyeh tripoli sidon tyre zahle "
     "zahleh jbeil byblos keserwan kesrouan metn matn baabda aley chouf shouf zgharta koura batroun bcharre "
     "becharre minieh dinnieh miniyeh danniyeh rashaya rachaya hasbaya marjayoun jezzine halba jounieh arsal "
@@ -283,12 +290,49 @@ def _covered(found: list[str]) -> bool:
 _POSSESSIVE = re.compile(r"['’]s?$")  # "Lebanon's", "Syrians'"
 
 
+# a word that writes what follows it as a place ("in Saida 2023", "numbers for Sayda, 2024", "across Qana
+# 2023"), with other places between them ("in Majdal Anjar and Saadnayel 2023", "in Tyre, Qana and Houla
+# 2024"); never "to" ("According to Naameh (2021)")
+_AS_PLACE = re.compile(
+    r"(?:^|[^\w'’\-])(?i:in|for|from|across|among|within|throughout|near|around|outside|inside)\s+"
+)
+_LISTED = re.compile(r"\s*,\s*|\s+(?:and|or|&)\s+", re.IGNORECASE)
+
+
+def _a_place(words: list[str]) -> bool:
+    """Whether ``words`` (folded) are a place's: each a word of a place (:data:`PLACE_WORDS`, a town's or a
+    district's one-word spelling: :data:`PLACE_NAMES_ONE`), or a place's name of several words."""
+    return bool(words) and (
+        all(w in PLACE_WORDS or w in PLACE_NAMES_ONE for w in words) or tuple(words) in PLACE_NAMES
+    )
+
+
+def _as_place(text: str, start: int, name: str) -> bool:
+    """Whether ``name``, written at ``start`` of ``text``, is a place written as one (:func:`_a_place`), after
+    the nearest word that writes a place (:data:`_AS_PLACE`), other places only between them."""
+    if not _a_place([fold(_POSSESSIVE.sub("", w)) for w in _WORDS.findall(name)]):
+        return False
+    window = text[max(0, start - 120) : start]
+    found = list(_AS_PLACE.finditer(window))
+    if not found:
+        return False
+    between = window[found[-1].end() :]
+    if not between.strip():
+        return True
+    parts = _LISTED.split(f" {between}")
+    return bool(_LISTED.search(between[-6:] + " ")) and all(
+        _a_place([fold(w) for w in _WORDS.findall(part)]) for part in parts if part.strip()
+    )
+
+
 def _names(match: re.Match) -> list[tuple[int, int]]:
-    """The spans of the names of a C1-C6 match that are not kept."""
+    """The spans of the names of a C1-C6 match that are not kept (nor a place written as one: "in Saida
+    2023", :func:`_as_place`)."""
     spans = []
     found = match.groupdict()
     for group in ("a", "b"):
-        if found.get(group) and not kept(found[group]):
+        name = found.get(group)
+        if name and not kept(name) and not _as_place(match.string, match.start(group), name):
             spans.append(match.span(group))
     return spans
 
@@ -338,6 +382,8 @@ def _item(item: str, cited: set[str]) -> str:
 def _pair(match: re.Match) -> list[tuple[int, int]]:
     """C5's two names, when neither is kept ("Fakeword and Child Development Survey 2023" is a title)."""
     if kept(match.group("a")) or kept(match.group("b")):
+        return []
+    if _as_place(match.string, match.start("a"), match.group("a")):  # "in Tyre, Qana and Houla 2024"
         return []
     return [match.span("a"), match.span("b")]
 
@@ -583,7 +629,9 @@ def _listed(text: str, people: People, found: set[str], surnames: bool) -> list[
             if _not_a_name(_WORDS.findall(m.group("a"))[-1]):  # a date: "Fake fieldwork May-June 2020;"
                 continue
             place = m.group("place")
-            if place is not None and not all(fold(w) in PLACE_WORDS for w in _WORDS.findall(place) or ["-"]):
+            if place is not None and not all(
+                fold(w) in PLACE_WORDS or fold(w) in PLACE_NAMES_ONE for w in _WORDS.findall(place) or ["-"]
+            ):
                 continue
             person = _person(m)
             if person:

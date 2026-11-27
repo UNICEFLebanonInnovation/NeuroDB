@@ -182,6 +182,17 @@ def test_the_question_and_page_are_cleaned_before_they_are_sent(on, model, clien
     assert "example.org" not in sent and "elsewhere.example" not in sent and "q=secret" not in sent, sent
 
 
+def test_a_long_page_address_is_cleaned_before_it_is_cut(on, model, client_viewer):
+    """The page's path is read for an address whole, then cut: a path the cut would end inside an address
+    ("/.../zfakemira.saab at ex") is never kept or sent."""
+    client = model(reply(say("Done.")))
+    page = "https://neurodb.example/fmm/visits/" + "a" * 160 + "/write%20zfakemira.saab%20at%20example.org"
+    _events(_ask(client_viewer, "What is urgency?", page=page))
+    row = HelpQuestion.objects.get()
+    assert "zfakemira" not in row.page
+    assert "zfakemira" not in json.dumps(client.requests[0]["input"]) + client.requests[0]["instructions"]
+
+
 # ------------------------------------------------------------------------------------------ declined
 @pytest.mark.parametrize(
     ("question", "reason"),

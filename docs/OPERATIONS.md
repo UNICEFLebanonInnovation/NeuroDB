@@ -401,20 +401,32 @@ come from.
     the Monitoring insights chat, of the Help assistant or of the KM Database, each earlier question sent
     again, the Help page's title and the search words of a Monitoring insights filter. "x at example.org",
     "x(at)example.org", "x [ at ] example [ dot ] org", "x -at- example -dot- org", "x at example dot org",
-    "X AT EXAMPLE.ORG", "x at Example.Org", "x at mail.example.invalid", "x at example. org", "x at example
-    .org", "x @ example dot org", "x [@] example [dot] org", "x at example dot invalid", "x at
-    example[.]invalid", "x arobase example.org", "x 'at' example.org", "x *at* example.org", "x at-sign
-    example.org", "x at at example.org", "x at example period org" and "x-at-example-dot-org" lose the whole
-    address, the name before "at" too, and so do letters that look like an address's (a Cyrillic "а", a
-    full-width "ａｔ" or "．", mathematical, circled or small-capital letters; only letters, "." and "@":
-    "10³ km²" stays). A word that names no one before "at" stays and the domain goes as a link, its path
-    too: a common word ("children at [link withheld]") or a web address's word ("available", "published",
-    "the dashboard", "the guide", "the profile at [link withheld]"); any other word goes with the address,
-    and so does what is left of a path after it ("x at example.org/ops"). A domain's last part counts in
-    any case when it is a known ending (".org", ".lb", ".invalid"...), any other only in lower case and
-    when it is no word of a sentence, so that "at Mt.Lebanon", "at St.Joseph" and "at Akkar.No evidence"
-    stay. A question kept before this rule, whose domain alone was taken as a link ("x at [link
-    withheld]"), loses the name when it is sent again (Monitoring insights chat, Help assistant).
+    "X AT EXAMPLE.ORG", "x at Example.Org", "x at mail.example.invalid", "x at example. org", "x at example.
+    lb", "x at example. net. lb", "x at example. invalid", "x at example. Org" (a capital a phone's keyboard
+    puts after ". ", for ".org", ".com", ".lb", ".ngo" and ".invalid"), "x at example .org", "x @ example dot
+    org", "x [@] example [dot] org", "x at example dot invalid", "x at example[.]invalid", "x at
+    example<.>org", "x arobase example.org", "x 'at' example.org", "x 'at' example 'dot' org", "x *at*
+    example *dot* org", "x /at/ example /dot/ org", "x at-sign example.org", "x at at example.org", "x at
+    example period org", "x(a)example.org", "x-at-example-dot-org", "x-at-example-dot-invalid" and
+    "x_at_example_dot_org" lose the whole address, the name before "at" too, and so do letters that look like
+    an address's (a Cyrillic "а", a Latin "ɑ", a full-width "ａｔ" or "．", a middle dot between two letters
+    "example·org", mathematical, circled or small-capital letters; only letters, "." and "@": "10³ km²"
+    stays). A word that names no one before "at" stays and the domain goes as a link, its path too: a common
+    word ("children at [link withheld]") or a web address's, a citation's or a page's word ("available",
+    "published", "the dashboard", "the guide", "the profile", "accessed", "Contact us", "the focal point",
+    "the methodology", "the chart", "an error at [link withheld]"); any other word goes with the address,
+    and so does what is left of a path after it ("x at example.org/ops"), and so does a word before "at" and
+    a link written with its scheme ("x at https://example.org": the same on every turn, as an earlier
+    question cleaned again). A domain's last part counts in any case when it is a known ending (".org",
+    ".lb", ".invalid"...), any other only in lower case and when it is no word of a sentence; after a plain
+    word and "at", only one of two letters ("x at example.sy") or after two parts or more, so that "at
+    Mt.Lebanon", "at St.Joseph", "at Akkar.No evidence", "at Halba.please list them", "at zahle.thanks" and
+    "at akkar.ok" stay, and so do a sentence after a place and ". " ("at Halba. Net enrolment rose", "at
+    Tyre. De facto", "at Akkar. Gov staff") and a time or an item's number before "at" ("9.30am at
+    halba.we met", "Visit no.2 at akkar.we"). A question kept before this rule, whose domain alone was
+    taken as a link ("x at [link withheld]"), loses the name when it is sent again (Monitoring insights
+    chat, Help assistant). Not read: two addresses sharing one domain ("ask x, y at example.org": the first
+    name stays), and an invisible separator glued to "at" ("x\u2063at example.org").
   - *Record and document texts* get the record rule (`people.withhold_addresses`): narratives, answers,
     look-up results, earlier answers, documents. An address ending in a common domain in lower case
     (".org", ".com", ".lb"...), also after a space ("x at example .org"), or written with "dot", "period"
@@ -422,13 +434,16 @@ come from.
     unless that word names no one, as above ("more at unicef.org", "the dashboard at data.unicef.org",
     "available at www.unicef.org/lebanon": the domain and its path are left to the link rule, which
     withholds them as a link). Before a domain in capitals, of another ending or with a space after its
-    dot, only when that word holds a full stop, "_", "+" or a digit or is in capitals with "AT" ("x.y at
+    dot, only when that word holds a full stop, "_", "+" or a digit (never a time, an ordinal, a measure or
+    an item's number: "9.30am", "9am", "2nd", "no.2", "q3") or is in capitals with "AT" ("x.y at
     Example.Org", "x_y at example.invalid", "X AT EXAMPLE.ORG", "x_y at example. org"). The last part of
-    a domain counts as for typed text, and a country's ending that is also a word ("x.y at example.it")
-    only after a name with a full stop, "_" or "+". So "published at Example.Org", "located at
-    Tyre.Net", "at school.it was", "at 2pm at Halba.We met", "DISTRIBUTION AT SITE.NO ISSUES" and "look at
-    the dot plot" keep their words (a domain still goes as a link), and so do "x at Example.Org", "x at
-    example. org" and "x at example.it" after a plain word; any other word before "at www." or a path
+    a domain counts as for typed text, and a country's ending that is also a word ("x.y at example.it",
+    "x2 at example.it") only after such a name; after a spelled dot, an ending longer than three letters
+    only after such a name ("x.y at example dot online"). So "published at Example.Org", "located at
+    Tyre.Net", "at school.it was", "at 2pm at Halba.We met", "Arrived 10.15am at tyre.it was raining",
+    "Visit no.2 at akkar.we met", "DISTRIBUTION AT SITE.NO ISSUES" and "look at the dot plot" keep their
+    words (a domain still goes as a link), and so do "x at Example.Org", "x at example. org" and "x at
+    example.it" after a plain word; any other word before "at www." or a path
     goes with the address ("x at example.org/ops", a list of focal points "x at example dot org/y at
     example dot org"), and so does what is left of the path; look-alike letters are read as such only in
     typed text.
@@ -437,7 +452,9 @@ come from.
     record rule (`people.without_emails`), so what it keeps by design goes as written there; a text
     without one is sent exactly as it is, and a CPD in PDF is sent as the file, not cleaned.
   - *The search words of a Monitoring insights filter* lose an address written in them, by the typed
-    rule, as soon as the filter is read (`fmm.scope.searched`): no visit's search text holds one, so the
+    rule, as soon as the filter is read (`fmm.scope.searched`, before they are cut to 200 characters, so
+    that no cut leaves part of one; the Help page's address is read whole too, then cut): no visit's search
+    text holds one, so the
     same visits are found, and no filter kept (a chat question's, a brief's), shown, sent to the AI (the
     filter line, the dashboard's address a look-up returns, whose search words are cleaned as typed text
     too) holds one.
@@ -1539,10 +1556,15 @@ asked). In order:
    Database's authors (full names and surnames, in capitals or not: "what did doe find"; also joined to digits
    or "_" anywhere in a word, or before a hyphen and digits: "doe2019", "doe_survey", "LCRP_Doe_2019",
    "Doe-2019"), citations and names after a title. A place before a year is never taken for a citation's name
-   ("child labour in Saida 2023", "for Bab al-Tabbaneh 2024": every spelling of every governorate, district,
-   town and region of `places.py`, a name of several words written whole, never "Elias" or "Mohsen" alone;
-   not a camp, whose name is a family name too), so the question kept, which a follow-up reads again, keeps
-   its place. The typed text is searched (never an address in it, written out or not, by the same rule), never
+   ("child labour in Saida 2023", "numbers for Sayda, 2024", "for Bab al-Tabbaneh 2024": a country, a
+   governorate, a district or a main town anywhere; a place's name of several words of `places.py` written
+   whole, never "Elias" or "Mohsen" alone; a town's or a district's other one-word spellings, which are family
+   names too, only after a word that writes a place, "in", "for", "from", "across", "among", "within"...,
+   other places only between them ("in Majdal Anjar and Saadnayel 2023", "in Tyre, Qana and Houla 2024");
+   never a camp, whose name is a family name too), so the question kept, which a follow-up reads again, keeps
+   its place. A town's one-word name written as a person's stays a name: a citation "(Naameh 2021)", "Naameh
+   (2021) found", "According to Naameh and Doe (2021)", an interview's speaker "– Sayda, 14", "(Houla, 15)",
+   and a document's own author "Naameh, R." (its surname is withheld in that document's texts). The typed text is searched (never an address in it, written out or not, by the same rule), never
    kept or sent. The questions sent (and earlier questions of the conversation) are checked again for a
    surname in any case.
 2. The filters it reads within are those of the tab's address (the Findings tab's filter, carried by the
@@ -1558,7 +1580,8 @@ asked). In order:
      "yrs" too; a decade is 10 years, "over the last decade" 2016-2026; "the past year", "in the last year" or
      up to 12 months, "over the last 12 months": the year before too; "past years" and "recent years" with no
      number: 2 years); "last year" alone (not after "the" or "past": "anaemia last year", "from last year",
-     "last year's figures") is the previous calendar year only, 2025, and "since last year" 2025-2026; "since
+     "last year's figures") is the previous calendar year only, 2025, and "since last year" or a comparison
+     with it ("compared to last year", "higher than last year") 2025-2026; "since
      2023", "from 2023", "2023 onwards", "from 2023 onwards", "2023 and after", "2023 and later" and "from
      2023 on" (at the end of a clause: "the 2023 report on stunting" is 2023) up to this year; a chat's "teh",
      "abt" and "wat" are read as "the", "about" and "what" ("since teh 2019 crisis"); "after 2023",
@@ -1590,8 +1613,9 @@ asked). In order:
      searched. The years are publication years. **"Latest"**, "most recent", "newest", "up to date", "recent"
      before the data it qualifies ("recent figures") or at the end, and "recently" at the end ("what changed
      recently?"; never "recently displaced children") set the past 2 years too, and so do "anything newer",
-     "anything more recent", "anything new" and "an update" when the question names no years of its own ("is
-     there an update this year?" is this year); when under 10 findings of those years match, the newest others
+     "anything more recent", "anything new", "an update", and "newer" or "more recent" alone or of the data
+     ("more recent?", "newer figures"; never of the subject: "newer vaccines", "more recent arrivals") when
+     the question names no years of its own ("is there an update this year?" is this year); when under 10 findings of those years match, the newest others
      are read after them and the Year filter is not kept ("No finding of 2024–2026 matches your words: the
      most recent ones were read, newest first.", "Only 2 findings of 2024–2026 match your words: the most
      recent others were read too, newest first.").
@@ -1602,9 +1626,13 @@ asked). In order:
      French article before them, "la Békaa", "le Akkar", "du Hermel", "de la Békaa", "au Mont-Liban",
      "l'Akkar"; accents or none, "Békaa", "Zahlé", "Nabatiyé"), and in Arabic script ("عكار", "البقاع", "بعلبك
      الهرمل", "جبل لبنان", "النبطية" or "النبطيه"; with the letters joined before a name, "بالبقاع", "للبقاع",
-     "وطرابلس"; never "الصور", Tyre having no article; Arabic spellings only read a question, as the findings
-     are in English); their districts (the 26 cazas) and their main towns, each town in its district and
-     governorate, the official cazas (`places.DISTRICTS`, about 130 towns: Saida/Sidon, Ghazieh, Sarafand:
+     "وطرابلس"; never "الصور", Tyre having no article; a name that is also a word of a sentence, "صور" (forms,
+     pictures: "صور العنف", "صور نمطية"), "عاليه" (high: "نسبه عاليه"), "بشري" (human), "المتن", "الكورة",
+     "المنية", "الغازية", "الناعمة" (`places.AMBIGUOUS_ARABIC`), only where it is written as a place: after
+     "في", "من", "إلى", "قضاء", "منطقة", "مدينة"..., with "ب" joined to it ("بصور"), next to a word in Latin
+     letters ("nutrition in عاليه", "à صور") or with "و" right after another place ("صيدا وصور"); Arabic
+     spellings only read a question, as the findings are in English); their districts (the 26 cazas) and their
+     main towns, each town in its district and governorate, the official cazas (`places.DISTRICTS`, about 130 towns: Saida/Sidon, Ghazieh, Sarafand:
      Saida; Tyre/Sour, Qana, Naqoura: Tyre; Karantina, Achrafieh, Tariq el Jdideh: Beirut; Ouzai, Ghobeiry,
      Haret Hreik, Dahiyeh: Baabda; Choueifat, Aramoun, Khaldeh: Aley; Barja, Damour, Chhim: Chouf; Dekwaneh,
      Bourj Hammoud: Metn; Jounieh, Zouk Mosbeh: Keserwan; Amchit: Jbeil; El Mina, Bab al-Tabbaneh, Jabal
@@ -1625,8 +1653,11 @@ asked). In order:
      governorates", "the north governorates", "the northern region(s)", "the north region", "the northern
      areas", "parts" or "districts" are the North and Akkar (Akkar was part of the North until 2014: a
      default, changed in `places.REGIONS` if the owner rules otherwise; "Places from your question: the north
-     (North and Akkar governorates)."); "North governorate", "the northern governorate" (one) and "محافظة
-     الشمال" stay the North governorate. A region's part of a place is that place ("the southern region of the
+     (North and Akkar governorates)."); "North governorate", "the northern governorate" (one), "محافظة
+     الشمال" and a region's spelling with a governorate's word ("North Lebanon governorate", the governorate's
+     official name, "the governorate of North Lebanon", "Liban-Nord governorate", "gouvernorat du Nord"; the
+     same for the South: "South Lebanon governorate", "the Liban-Sud governorate") stay that governorate, and
+     "the North and South governorates" is the North and the South governorates only. A region's part of a place is that place ("the southern region of the
      Bekaa": the Bekaa, a place's name after "of", "in" or "within"); any other words keep the region ("of
      Lebanon", "the southern governorates in light of the escalation", "in collective shelters", "in the
      context of the war"). "South Metn" is Baabda (Mount Lebanon), "North Bekaa" is Baalbek-Hermel and "South
@@ -1690,16 +1721,20 @@ asked). In order:
      "add", "include", "convert", "in simpler words"), the words that ask for figures ("rate", "proportion",
      "prevalence", "figures", "statistics", "share", "estimate"), and the words of a request, of courtesy or
      of urgency as people write them ("provide", "send", "get", "share", "prepare", "present", "indicate",
-     "available", "currently", "affected", "concerned", "comparison", "grateful", "summarising", "info",
-     "information", "hi", "hey", "hello", "dear", "asap", "urgently", "lence" for "lens", "thing" of "the same
-     thing for Bekaa"; `ask.REQUEST_STOP`),
+     "available", "currently", "affected", "concerned", "comparison", "grateful", "summarising", "info", "hi",
+     "hey", "hello", "dear", "asap", "urgently", "lence", "lense", "lenses" and "lenz" for "lens", "thing" of
+     "the same thing for Bekaa"; `ask.REQUEST_STOP`), "information" asked for ("share information on
+     stunting", "what information do we have on"; never "access to information", "lack of information",
+     "information sessions": `ask.INFORMATION_ASKED`),
      an answer's shape ("a short table", "a brief note", "a short summary", "a brief overview":
      `ask.REQUEST_PHRASES`) and "address" as a verb (opening the question or a clause, or after "that",
      "which", "who" or "to": "the studies that address stunting"; "birth registration address" keeps it:
      `ask.ADDRESS_VERB`) are not searched while other words remain (a question of these words only, with no
      place, time frame or code, searches them; in a follow-up never; "needs", a noun, is searched: "special
      needs"). "Trend" and "trends" only rank: a finding on the subject that gives no trend is read too, those
-     that give one first (`ask.RANK_ONLY`). "Kids" is a common word like "children"; a chat's "teh", "abt" and
+     that give one first (`ask.RANK_ONLY`), and so do the verbs a measure is written with ("covered",
+     "covers", "reached", "reported": "% of children covered by MHPSS by governorate" reads the findings on
+     MHPSS that name a place, those that say "covered" first). "Kids" is a common word like "children"; a chat's "teh", "abt" and
      "wat" are "the", "about" and "what". Words a rework uses that are subject words too ("Arabic", "French",
      "English", "formal", "informal", "focus", "points", "style", "shorter", "longer", "donor":
      `ask.REWORK_STOP`) are searched ("Arabic literacy", "informal settlements", "focus group discussions",
@@ -1730,11 +1765,14 @@ asked). In order:
      finding of the filters holds (a word misspelt, a word of no finding) is not counted (one query). A
      misspelt word of 5 letters or more that no finding holds is read as the version's closest word when no
      search-words call gives words (the AI off, paused, over a limit or failing, or the call gave none): one
-     letter left out or added or two swapped (from 8 letters, also one changed, or two such edits), starting
-     with the same letter, the word most findings write but never one more than half of them write ("povrety":
-     "poverty", "vacination": "vaccination"; never "wasting" as "waiting" nor "plan" as "plain"), never a
-     request, common, place word or "national", and only when a finding of the filters holds it (its findings
-     are read first). The word read is the search's only: never sent to the AI, kept on the question's row (a
+     letter left out or added or two swapped (from 8 letters, also two such edits or one letter changed, never
+     two changed: "studying" is no "stunting"), starting with the same letter, the word most findings write
+     but never one more than half of them write ("povrety": "poverty", "vacination": "vaccination"; never
+     "wasting" as "waiting" nor "plan" as "plain"), never a request, common, place word, "national" or a
+     country or nationality of the region ("syria" is no "syrian"), and only when a finding of the filters
+     holds it. The findings that hold every word as meant are read first, then those the words as typed found,
+     then those of the words as meant that hold fewer of them (never findings of the read word alone before
+     those of the question's own words). The word read is the search's only: never sent to the AI, kept on the question's row (a
      follow-up's new subject keeps the word as typed) or said under the answer. The version's words are the
      unstemmed words of its findings' search index, read once a version in each process (PostgreSQL's
      `ts_stat`: no extension, no table, no migration). The order: the most groups matched; when the question
@@ -1793,10 +1831,13 @@ asked). In order:
      "the list of", a leading "and" before a question of its own ("Is free education for all children
      achieved?", "Why did enrolment fall again?", "How did families adjust to the crisis?", "Do girls work
      instead of studying?" and "the situation of children for all governorates" start afresh). A short
-     question is a question of its own when it has words of a subject that are no group of people and a
-     place, all of Lebanon, a breakdown or years of its own, and no leading "and" (`Asked.own_question`:
-     "stunting in Baalbek?", "child marriage Akkar", "child marriage 2024", "stunting nationally?" start
-     afresh; "child marriage", "girls in Akkar?", "what about Akkar?" stay follow-ups). A question that names
+     question is a question of its own when it has words of a subject that are no group of people nor an
+     aspect of a subject (`ask.ASPECTS`: barriers, reasons, causes, drivers, consequences, challenges, needs,
+     services, differences, levels, sources, references, reports, documents, examples, quotes, a chart or a
+     map...) and a place, all of Lebanon, a breakdown or years of its own, and no leading "and"
+     (`Asked.own_question`: "stunting in Baalbek?", "child marriage Akkar", "child marriage 2024", "stunting
+     nationally?" start afresh; "child marriage", "girls in Akkar?", "what about Akkar?", "barriers in
+     Akkar?", "differences by governorate?", "sources for Tripoli?" stay follow-ups). A question that names
      the KM Database's subject in general words ("the situation of children", "children"), a Finding ID or a
      Document ID has a subject of its own. The earlier turns of the conversation that were answered or matched
      nothing (`ask.history`; `ask.conversation`, from their cleaned questions and what their rows keep, no
@@ -1813,7 +1854,8 @@ asked). In order:
      frame of its own replaces the earlier years, and "anything newer?", "more recent?", "any update?" read
      the years after the earlier question's last one up to this year (2020–2026 after "in 2019"; this year
      alone when they reach it; the past 2 years when it had none), and only when no finding of those years
-     matches, the newest others (the line says so: `TimeFrame.followed`).
+     matches, the newest others (the line says so: `TimeFrame.followed`): the place's newest first (its
+     earlier years too), before any other place's.
      It reads the findings the previous answer cited first (up to 20; when it names a place of its own, only
      those naming it). When no finding of the place matches its angles together with the earlier subject: an
      angle on that subject ("and for girls?", "for girls", "what about refugees?"), or an addition ("and the
@@ -1822,8 +1864,9 @@ asked). In order:
      from all of Lebanon were read."); a new subject ("child marriage", "and for child marriage?" after
      out-of-school children in Tripoli reads that subject in Tripoli), a rework, or an angle or addition no
      finding joins anywhere searches its angles alone, in the earlier place and years (one of two words when
-     none holds both, and the line says so). A switch to a subject that is no group of people ("what about
-     vaccination?", "how about vaccination?", "ok, what about vaccination instead?", "vaccination instead",
+     none holds both, and the line says so). A switch to a subject that is no group of people nor an aspect
+     of the earlier subject ("what about vaccination?", "how about vaccination?", "ok, what about vaccination
+     instead?", "vaccination instead",
      "do the same for vaccination", "what about ECD?"; `ask.SWITCH`) searches its words alone in the earlier
      place and years at once, as a first question would, never first joined to the earlier subject (in any
      sizeable KM Database a few findings hold both, and the answer would read only them), without the
@@ -1842,7 +1885,9 @@ asked). In order:
      ("adjust it for girls", "can you adjust the text above with a lens on gender") and a group of people
      ("and for girls?", "what about girls?", "what about disability?", "what about refugees?", "now focus on
      displaced children": ages, sexes, gender, disability and population types, refugees, displaced, Syrian,
-     Palestinian, Lebanese, migrants, the host community, stateless, IDPs; `ask.PEOPLE`) stay angles on the
+     Palestinian, Lebanese, migrants, the host community, stateless, IDPs; `ask.PEOPLE`), and an aspect of the
+     earlier subject ("what about the barriers?", "how about the main reasons?", "what about the services
+     available?"; `ask.ASPECTS`) stay angles on the
      earlier subject: the next follow-up reads out-of-school girls, never girls on any subject. A group of
      people replaces the earlier groups of its kind, in the angles and in the subject (`ask.PEOPLE_KINDS`:
      sexes and gender, ages, disability, population types): "and for girls?" after "and for boys?" reads child

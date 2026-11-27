@@ -5,6 +5,8 @@ check. Fake strings only."""
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from neurodb.km import privacy
@@ -514,3 +516,63 @@ def test_the_address_rule_is_neurodbs_shared_one():
         assert people.withhold_addresses(text) == RECORD.format(privacy.EMAIL_WITHHELD), form
     for text in NOT_ADDRESSES:
         assert people.withhold_addresses(text) == text
+
+
+# ------------------------------------------------------- a person's name that is also a town's (places.py)
+TOWN_NAMES = (
+    "Naameh (2021) found that 12% of girls married before 18.",
+    "According to Naameh and Fakedoe (2021), 12% of girls married before 18.",
+    '"We had no choice" (Naameh, 16)',
+    '"I left school to work" – Sayda, 14',
+    '"I left school to work" (Houla, 15)',
+    "(Hadath 2019) found high rates.",
+    "Rayak (2020) reported that 30% of children worked.",
+    "Kousba (2018) found high rates.",
+    "Hasroun (2020) found high rates.",
+)
+
+
+@pytest.mark.parametrize("text", TOWN_NAMES)
+def test_a_name_that_is_also_a_towns_is_withheld_where_it_is_written_as_a_name(text):
+    """A town's spelling (:mod:`neurodb.km.places`) keeps its place only where it is written as a place
+    ("in Saida 2023", "numbers for Sayda, 2024"): a citation, an interview's speaker or an author's surname
+    written so is a person's, as it was before the towns were known."""
+    town = re.search(r"Naameh|Sayda|Houla|Hadath|Rayak|Kousba|Hasroun", text).group()
+    for cleaned in (privacy.for_ai(text), privacy.for_download(text)):
+        assert town not in cleaned and W in cleaned, cleaned
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("text", TOWN_NAMES[:3])
+def test_a_question_loses_a_name_that_is_also_a_towns(text):
+    assert "Naameh" not in privacy.clean_question(text)
+
+
+def test_a_documents_own_author_named_as_a_town_is_withheld():
+    from neurodb.km import authors
+
+    assert authors.surname("Naameh, R.") == "naameh" and authors.surname("Jane Kousba") == "kousba"
+    people = authors.gather(
+        [("INV-0001", "Hasroun, J."), ("INV-0002", "Naameh, R."), ("INV-0003", "Jane Kousba")], {}
+    )
+    assert {"hasroun", "naameh", "kousba"} <= set(people.surnames)
+    text = "Naameh's survey of 300 households found that 12% of girls married before 18."
+    own = people.own.get("INV-0002", frozenset())
+    for cleaned in (privacy.for_ai(text, people, own), privacy.for_download(text, people, own)):
+        assert "Naameh" not in cleaned, cleaned
+
+
+# ------------------------------------------------- a name with a digit before a two-letter word as an ending
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Fake rainfall data: contact zfakemira2 at example.it for the tables.",
+        "Fake rainfall survey: hsaab90 at example.be holds the files.",
+        "Fake rainfall survey: zfakemira2 at example.no holds the files.",
+        "Fake rainfall survey: zfakemira2 at example.me holds the files.",
+    ],
+)
+def test_a_name_with_a_digit_is_withheld_before_any_countrys_ending(text):
+    for cleaned in (privacy.for_ai(text), privacy.for_download(text)):
+        assert "zfakemira2" not in cleaned and "hsaab90" not in cleaned and "example" not in cleaned, cleaned
+        assert privacy.EMAIL_WITHHELD in cleaned

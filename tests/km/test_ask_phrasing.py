@@ -50,6 +50,21 @@ def test_a_breakdown_never_counts_as_a_word_of_the_subject(ai):  # noqa: F811
         assert picked.breakdown and read(picked) == {FEEDING[0]}, question
 
 
+def test_the_verb_of_a_measure_only_ranks_in_a_breakdown_too(ai):  # noqa: F811
+    """ "% of children covered by MHPSS by governorate": a finding on MHPSS that names a place is read whether
+    it says "covered" or "received" (those that say it first); the breakdown stays required."""
+    both = [f"In {town}, MHPSS covered {n}% of children." for town, n in (("Akkar", 20), ("Tyre", 25))]
+    one = [
+        f"In {town}, {n}% of children received MHPSS."
+        for town, n in (("Zahle", 30), ("Halba", 31), ("Saida", 32), ("Jbeil", 33), ("Aley", 34))
+    ]
+    load(("2024", [*both, *one, "Nationally, MHPSS covered 15% of children."]))
+    picked = _picked("please, % of children covered by MHPSS by governorate and district thx")
+    assert picked.breakdown and set(_ids(picked)[:2]) == set(ids_of(*both))
+    assert picked.matched == len(both) + len(one) and picked.groups[0][0] == "mhpss"
+    assert "Nationally, MHPSS covered 15% of children." not in read(picked)
+
+
 def test_a_breakdown_reads_the_subjects_best_matches_before_the_governorates_named(ai):  # noqa: F811
     texts = (
         "In Akkar, Beirut, Tripoli and Tyre, school feeding was discussed.",
@@ -144,9 +159,36 @@ def test_a_place_before_a_year_is_never_withheld_as_a_name(place):
     for asked in (
         f"child labour in {place} 2023",
         f"numbers for {place}, 2024",
-        f"child labour ({place} 2023)",
+        f"child labour across {place} 2023",
     ):
         assert privacy.clean_question(asked) == asked, asked
+
+
+def test_places_listed_before_a_year_are_never_withheld_as_names():
+    for asked in (
+        "out of school refugees in Majdal Anjar and Saadnayel 2023",
+        "child labour in Tyre, Qana and Houla 2024",
+        "numbers for Saida and Sayda, 2024",
+        "numbers on bullying in schools in Chtoura 2024",  # the place word nearest the name
+        "trends in out-of-school children for Aakar 2019-2022",
+    ):
+        assert privacy.clean_question(asked) == asked, asked
+    # never a name between them: "in Doe and Naameh 2016" is a citation
+    assert "Naameh" not in privacy.clean_question("as shown in Fakedoe and Naameh 2016")
+
+
+@pytest.mark.parametrize("place", ["Western Bekaa", "Bab al-Tabbaneh", "Jabal Mohsen", "Tyre", "Zahle"])
+def test_a_place_of_several_words_or_a_main_towns_stays_in_a_citations_parenthesis(place):
+    asked = f"child labour ({place} 2023)"
+    assert privacy.clean_question(asked) == asked
+
+
+@pytest.mark.parametrize("place", ["Saida", "Sayda", "Qana", "Houla", "Naameh"])
+def test_a_towns_name_of_one_word_written_as_a_citation_is_a_name(place):
+    """A citation's shape ("(Naameh 2021)", "Naameh (2021) found"): a town's one-word spelling is also a
+    family name, kept as a place only where it is written as one ("in Naameh 2021")."""
+    for asked in (f"child labour ({place} 2023)", f"{place} (2021) found high rates"):
+        assert place not in privacy.clean_question(asked), asked
 
 
 def _written(spelling: str) -> str:
@@ -333,10 +375,48 @@ def test_all_of_lebanon_in_more_words(asked):
         ("the northern governorate", ["north"]),
         ("the South governorate", ["south"]),
         ("the southern governorate", ["south"]),
+        # a governorate's word with a region's spelling: that governorate ("North Lebanon governorate" is the
+        # North governorate's official name)
+        ("North Lebanon governorate", ["north"]),
+        ("the North Lebanon Governorate", ["north"]),
+        ("the governorate of North Lebanon", ["north"]),
+        ("Liban-Nord governorate", ["north"]),
+        ("the Liban-Nord governorate", ["north"]),
+        ("the North and South governorates", ["north", "south"]),
+        ("South Lebanon governorate", ["south"]),
+        ("the South Lebanon governorate", ["south"]),
+        ("the governorate of South Lebanon", ["south"]),
+        ("the Liban-Sud governorate", ["south"]),
+        ("the South Lebanon governorate and Nabatieh", ["south", "nabatieh"]),
     ],
 )
 def test_the_regions_by_the_owners_rule(asked, expected):
     assert keys(f"child marriage in {asked}") == expected
+    left = set(places.read(f"child marriage in {asked}").text.casefold().split())
+    assert not left & {"lebanon", "north", "south", "governorate", "governorates"}, left
+
+
+# ------------------------------------------------- an Arabic word that is also a place's name, not a place
+@pytest.mark.parametrize(
+    ("asked", "expected"),
+    [
+        ("ما هي صور العنف ضد الأطفال في لبنان؟", []),  # "forms of violence"
+        ("هل هناك صور نمطية عن تعليم الفتيات في لبنان؟", []),  # "stereotypes"
+        ("هل هناك نسبه عاليه من الأطفال خارج المدرسة في لبنان؟", []),  # "a high rate"
+        ("ما هو رأس المال بشري للأطفال؟", []),  # "human capital"
+        ("عمالة الأطفال في صور", ["tyre"]),
+        ("عمالة الأطفال بصور", ["tyre"]),
+        ("الأطفال في صيدا وصور", ["saida", "tyre"]),
+        ("التسرب المدرسي في قضاء عاليه", ["aley"]),
+        ("الأطفال في بشري", ["bcharre"]),
+        # in a question written in English or French
+        ("list the key findings on nutrition in عاليه", ["aley"]),
+        ("what is known about OOSC in صور?", ["tyre"]),
+        ("travail des enfants à صور", ["tyre"]),
+    ],
+)
+def test_an_arabic_word_that_is_also_a_places_name_is_a_place_only_where_written_as_one(asked, expected):
+    assert keys(asked) == expected
 
 
 def test_the_north_is_said_as_the_north_and_akkar(ai):  # noqa: F811
@@ -385,6 +465,10 @@ D = list(range(2026, 2015, -1))  # the last decade: 2016-2026
         ("anaemia in the past year", [2026, 2025], "anaemia"),
         ("anaemia in the last year", [2026, 2025], "anaemia"),
         ("anaemia over the last 12 months", [2026, 2025], "anaemia"),
+        # compared with last year: that year and this one
+        ("has child marriage increased compared to last year?", [2026, 2025], "has child marriage increased ?"),
+        ("is child labour higher than last year?", [2026, 2025], "is child labour higher ?"),
+        ("child marriage this year compared with last year", [2026, 2025], "child marriage"),
     ],
 )  # fmt: skip
 def test_more_time_phrases(asked, years, left):
@@ -404,6 +488,31 @@ def test_more_time_phrases(asked, years, left):
 def test_newer_and_an_update_are_the_latest(asked):
     frame = ask.time_frame(asked, ON)
     assert frame.latest and frame.years == [2026, 2025, 2024], asked
+
+
+@pytest.mark.parametrize(
+    "asked",
+    ["uptake of newer vaccines among infants", "how do more recent arrivals cope with rent?"],
+)
+def test_newer_of_the_subject_is_no_time_frame(asked):
+    """ "newer vaccines", "more recent arrivals": words of the subject, never "anything newer"."""
+    assert ask.time_frame(asked, ON).years == [], asked
+    assert ask.time_frame("is there newer data on stunting?", ON).latest
+
+
+@pytest.mark.parametrize(
+    ("asked", "groups"),
+    [
+        ("access to information for adolescents in Akkar", [["access"], ["information"], ["adolescents"]]),
+        ("information sessions for parents", [["information"], ["sessions"], ["parents"]]),
+        ("what information do we have on stunting?", [["stunting"]]),
+        ("info on breastfeeding in Zahle", [["breastfeeding"]]),
+        ("stunting in Akkar with a lense on girls", [["stunting"], ["girls"]]),
+        ("child labour with a gender lenz", [["labour", "labor"], ["gender", "girls", "boys"]]),
+    ],
+)
+def test_information_asked_for_and_a_misspelt_lens_are_never_searched(asked, groups):
+    assert words_of(asked) == groups
 
 
 def test_an_update_with_a_year_of_its_own_is_that_year():
@@ -505,6 +614,41 @@ def test_an_event_alone_is_the_subject_and_its_place_the_place(ai):  # noqa: F81
     assert read(_picked("children after the 2024 war")) == {texts[2]}
     picked = _picked("the situation of children after the 2020 Beirut port explosion")
     assert picked.places == "Beirut" and picked.groups == [["port"], ["explosion"]]
+
+
+def test_a_correct_word_no_finding_holds_is_never_read_as_another(ai):  # noqa: F811
+    """ "studying" is no misspelling of "stunting" (two letters changed), nor "syria" of "syrian" (a
+    country's name): a word read so would put findings on another subject first."""
+    texts = [
+        "In the North, girls worked instead of going to school.",
+        "In the North, girls worked on farms during the harvest.",
+        "In the North, stunting affected 20% of girls.",
+        "Among Syrian refugees, birth registration reached 40%.",
+        "Among Palestinian refugees, birth registration reached 60%.",
+    ]
+    load(("2024", texts))
+    for typed in ("studying", "syria"):
+        assert ask.closest(typed) == "", typed
+    ai(terms_=[terms(), terms()])
+    picked = _picked("do girls work instead of studying in the North governorate?", may_call=True)
+    assert picked.corrected == {} and texts[2] not in read(picked)
+    picked = _picked("status of birth registration among Palestinian refugees from Syria", may_call=True)
+    assert picked.corrected == {} and _ids(picked)[0] == ids_of(texts[4])[0]
+
+
+def test_the_findings_of_the_words_as_typed_stay_before_a_misspelt_words_others(ai):  # noqa: F811
+    """A misspelt word read as the version's closest one: the findings that hold every word as meant first,
+    then those the words as typed found, and only then those of the words as meant that hold fewer."""
+    loss = [f"In {town}, learning loss in schools reached {n}%." for town, n in (
+        ("Akkar", 30), ("Tyre", 31), ("Zahle", 32), ("Halba", 33), ("Saida", 34), ("Jbeil", 35),
+    )]  # fmt: skip
+    extra = [f"Online learning in schools grew by {n}%." for n in (40, 41, 42, 43, 44, 45, 46, 47)]
+    other = [f"Fake rainfall rose by {n} mm in Zahle." for n in range(1, 21)]
+    load(("2025", [*loss, *extra, *other]))
+    ai(terms_=[terms()])
+    picked = _picked("lerning loss in schools across lebanon pls??", may_call=True)
+    assert picked.corrected == {"lerning": "learning"}
+    assert set(_ids(picked)[: len(loss)]) == set(ids_of(*loss))
 
 
 def test_a_misspelling_is_read_only_when_it_is_one(ai):  # noqa: F811

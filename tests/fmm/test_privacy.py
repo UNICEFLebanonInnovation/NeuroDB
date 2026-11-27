@@ -797,6 +797,46 @@ def test_a_typed_text_loses_an_address_in_every_written_out_form():
     )
 
 
+@pytest.mark.django_db
+def test_a_typed_text_cleaned_again_is_the_same_and_a_links_scheme_never_keeps_a_name():
+    """What a person types is sent and kept the same on every turn (an earlier question is cleaned again):
+    a name before "at" and a link with its scheme goes as an address's would on the first turn too."""
+    from neurodb.assistant import privacy as ask_privacy
+    from neurodb.km import privacy as km_privacy
+    from tests.written_addresses import FORMS, SCHEMED, TYPED, TYPED_NOT_ADDRESSES
+
+    for text, sent in SCHEMED.items():
+        assert people.without_addresses(text) == sent, text
+        assert privacy.clean_typed(text, 1000, frozenset())[0] == sent, text
+        assert ask_privacy.question(text, frozenset()) == sent, text
+    schemed = [
+        "explain the chart at https://neurodb.example.org/fmm/",
+        "the map at http://example.org/fmm/map",
+    ]
+    for text in [*SCHEMED, *schemed, *TYPED_NOT_ADDRESSES, *(TYPED.format(w) for w in FORMS.values())]:
+        once = privacy.clean_typed(text, 1000, frozenset())[0]
+        assert privacy.clean_typed(once, 1000, frozenset())[0] == once, text
+    assert "zfakemira" not in km_privacy.clean_question("contact zfakemira at https://example.org")
+    assert privacy.clean_typed(schemed[0], 1000, frozenset())[0] == "explain the chart at [link withheld]"
+
+
+def test_long_search_words_are_cleaned_before_they_are_cut():
+    """The filter's search words are cut to ``Q_CHARS`` after an address is withheld: an address the cut
+    would split ("... zfakemira.saab at ex") never stays."""
+    from urllib.parse import urlencode
+
+    from django.http import QueryDict
+
+    from neurodb.fmm.scope import Q_CHARS, Scope
+
+    head = "water tank repairs latrines handwashing hygiene kits distribution in public schools of Akkar "
+    head += "and Minieh-Danniyeh for the second semester of 2026 school year follow up please write"
+    q = f"{head} zfakemira.saab at example.org"
+    assert len(q) > Q_CHARS and "zfakemira" in q[:Q_CHARS] and "example.org" not in q[:Q_CHARS]
+    scope = Scope.from_params(QueryDict(urlencode({"year": "2026", "q": q})))
+    assert "zfakemira" not in scope.q and len(scope.q) <= Q_CHARS
+
+
 def test_a_record_text_loses_a_written_out_address_and_keeps_its_sentences():
     """A record's text (a narrative, an answer) loses an address written out (the record rule), and keeps a
     sentence that only looks like one ("published at Example.Org" loses its link, not its words)."""

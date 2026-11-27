@@ -138,7 +138,8 @@ _ISSUE = re.compile(r"^(R\d{1,3}):([a-z0-9_:,]{1,40})$")
 
 def searched(q: str) -> str:
     """The search words as a filter holds them: an e-mail address the person wrote in them, in any form,
-    withheld (``watch.people.without_addresses``, the rule for typed text), so that no filter kept (a chat
+    withheld (``watch.people.without_addresses``, the rule for typed text; before they are cut to
+    ``Q_CHARS``, so that no cut leaves part of one), so that no filter kept (a chat
     question's, a brief's), sent to the AI (the dashboard's address a look-up returns, the filter's words) or
     shown holds one. No visit's search text holds an address (labels, references, partners, places), so the
     search finds the same visits."""
@@ -343,7 +344,7 @@ class Scope:
             quality_bands=tuple(b for b in QUALITY_BANDS if b in _values(params, "quality")),
             urgency_levels=tuple(u for u in URGENCY_LEVELS if u in _values(params, "urgency_level")),
             programmatic=str(params.get("programmatic") or "").lower() in ("1", "true", "on", "yes"),
-            q=searched(" ".join(str(params.get("q") or "").split())[:Q_CHARS]),
+            q=searched(" ".join(str(params.get("q") or "").split()))[:Q_CHARS],
             drill=drill,
             default_section=default_section,
         )
@@ -647,7 +648,7 @@ class Scope:
             elif key == "programmatic":
                 scope = replace(scope, programmatic=scope.programmatic or bool(value))
             elif key == "q":
-                text = " ".join(str(value).split())[:Q_CHARS]
+                text = searched(" ".join(str(value).split()))[:Q_CHARS]
                 if not scope.q:
                     scope = replace(scope, q=text)
                 elif text and text != scope.q:  # both searches apply

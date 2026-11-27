@@ -88,7 +88,7 @@ AT_WORD = re.compile(
     r"(?<![\w.+'-])(?:[\w.+'-]+(?:[@＠﹫]|\s*[\[(]\s*[@＠﹫]\s*[\])]\s*|[\[({<](?i:at)[\])}>])"
     r"|(?:[a-z0-9.+'_-]+|[\w+'-]*[._\d][\w.+'-]*)\s+[@＠﹫](?=[^\W\d_])|[\w.+'-]+\s+[@＠﹫](?=[a-z]))[\w.-]*"
 )
-_SPELLED_HINT = re.compile(r"[@＠﹫]|\bat\b|at[\])}>]|\barobase\b", re.IGNORECASE)
+_SPELLED_HINT = re.compile(r"[@＠﹫]|\bat\b|at[\])}>]|\barobase\b|_at_|\(\s*a\s*\)", re.IGNORECASE)
 _AT_HINT = re.compile(r"[@＠﹫]|at[\])}>]", re.IGNORECASE)
 _DIGIT = re.compile(r"\d")
 # Records a search or a filter may have to be checked in, as Ask is sent them: counted before the text
@@ -919,13 +919,17 @@ _CHUNK = re.compile(r"\S+")
 MEMO_MAX = 20_000
 # What any cleaning rule needs written near a place the searched words are (:func:`_untouched`): a letter
 # outside ASCII (an Arabic title, an accent, an invisible character, a full-width sign), an at sign, a
-# full stop inside a word, between spaces or on one side of one ("x.org", "M.Sc", "x . y", "x. org", "x
-# .org"), an "at" or a "dot" in brackets, quotes or stars, "-at-", "dot", "period", "arobase", "at-sign", "at
-# at", a link's scheme; and ``PHONE_DIGITS`` digits (no phone has fewer), a title's word, the first word of a
-# known name or of one the record holds
+# full stop inside a word, between spaces, before one ("x.org", "M.Sc", "x . y", "x .org") or after one
+# before a domain's ending ("x. org", never a sentence's end), an "at" or a "dot" in brackets, quotes or
+# stars, "-at-", "_at_", "(a)", "dot", "period", "arobase", "at-sign", "at at", a link's scheme; and
+# ``PHONE_DIGITS`` digits (no phone has fewer), a title's word, the first word of a known name or of one the
+# record holds
 _TOUCHED = re.compile(
-    r"[^\x00-\x7f]|[@＠﹫]|\w\.\w|\s\.\s|\w\.\s\w|\s\.\w|[\[({<'\"*/]\s*(?:at|dot|period|\.)\s*[\])}>'\"*/]"
-    r"|-at-|\b(?:dot|period|arobase)\b|\bat-sign\b|\bat\s+at\b|\b(?:https?|ftp|mailto|javascript):",
+    r"[^\x00-\x7f]|[@＠﹫]|\w\.\w|\s\.\s|\s\.\w|[\[({<'\"*/]\s*(?:at|dot|period|\.)\s*[\])}>'\"*/]"
+    r"|-at-|_at_|_dot_|\(\s*a\s*\)|\b(?:dot|period|arobase)\b|\bat-sign\b|\bat\s+at\b"
+    r"|\b(?:https?|ftp|mailto|javascript):"
+    # a full stop and a space before a domain's ending ("x. org"), never a sentence's end ("centre. Teachers")
+    r"|\w\.\s(?:org|com|gov|edu|int|lb|fr|uk|ch|ae|qa|jo|eg|nl|au|io|ngo|biz|invalid)\b",
     re.IGNORECASE,
 )
 PHONE_DIGITS = 7

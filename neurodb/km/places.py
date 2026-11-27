@@ -164,6 +164,19 @@ GOVERNORATES: tuple[Place, ...] = (
         "North",
         (
             "north governorate",
+            # a governorate's word with a region's spelling: the governorate ("North Lebanon governorate" is
+            # its official name), never the region
+            "north lebanon governorate",
+            "northern lebanon governorate",
+            "governorate of north lebanon",
+            "governorate of northern lebanon",
+            "governorate of the north",
+            "liban-nord governorate",
+            "liban nord governorate",
+            "nord-liban governorate",
+            "gouvernorat du liban-nord",
+            "gouvernorat du nord-liban",
+            "gouvernorat du nord",
             "north lebanon",
             "northern lebanon",
             "northern governorate",
@@ -183,6 +196,17 @@ GOVERNORATES: tuple[Place, ...] = (
         (
             "south governorate",
             "southern governorate",
+            "south lebanon governorate",
+            "southern lebanon governorate",
+            "governorate of south lebanon",
+            "governorate of southern lebanon",
+            "governorate of the south",
+            "liban-sud governorate",
+            "liban sud governorate",
+            "sud-liban governorate",
+            "gouvernorat du liban-sud",
+            "gouvernorat du sud-liban",
+            "gouvernorat du sud",
             "south lebanon",
             "southern lebanon",
             "southern border",
@@ -773,6 +797,31 @@ REGION_NAMES = {
     ("south", "nabatieh"): "the South (South and Nabatieh governorates)",
     ("north", "akkar"): "the north (North and Akkar governorates)",
 }
+# the two governorates named before one plural governorate's word ("the North and South governorates"): each
+# that governorate only, never its region
+GOVERNORATE_PAIRS: dict[str, tuple[str, ...]] = {
+    "north and south governorates": ("north", "south"),
+    "south and north governorates": ("south", "north"),
+}
+# an Arabic place's name that is also a word of a sentence ("صور العنف": forms of violence, "صور نمطية":
+# stereotypes, "نسبه عاليه": a high rate, "رأس المال بشري": human capital): the place only where it is written
+# as one (:func:`_written_as_place`)
+AMBIGUOUS_ARABIC = {
+    "tyre": "صور",
+    "aley": "عاليه",
+    "bcharre": "بشري",
+    "metn": "المتن",
+    "koura": "الكورة",
+    "minieh-danniyeh": "المنية",
+    "ghazieh": "الغازية",
+    "naameh": "الناعمة",
+}
+# what writes an Arabic name as a place before it: "in", "from", "to", "on", "around", "district",
+# "area", "city", "town", "governorate", "the people of", "the residents of" (folded: no hamza on an alef)
+_ARABIC_PLACE_BEFORE = re.compile(
+    r"(?:^|\s)(?:في|من|الى|الي|على|عن|حول|قرب|داخل|خارج|قضاء|منطقة|منطقه|مدينة|مدينه|بلدة|بلده|محافظة|محافظه"
+    r"|اهالي|سكان|مخيمات)\s+$"
+)
 # a region's part of a place is that place ("the southern region of the Bekaa", "the southern areas of Mount
 # Lebanon": the Bekaa, Mount Lebanon), never the region; any other word after "of", "in" or "within" keeps
 # the region ("of Lebanon", "in light of the escalation", "in collective shelters": :func:`_of_a_place`)
@@ -949,6 +998,8 @@ def _aliases() -> list[tuple[re.Pattern, tuple[str, ...], str, bool]]:
     for spelling, keys in REGIONS.items():
         for form in _arabic_forms(spelling) if arabic(spelling) else [fold(spelling)]:
             found[form] = (keys, REGION_NAMES[keys], _of_a_place() if _AREA.search(form) else "")
+    for spelling, keys in GOVERNORATE_PAIRS.items():
+        found[fold(spelling)] = (keys, _names(keys), "")
     return [
         (
             re.compile(rf"(?<![\w'-]){_lead(spelling)}{suffix}(?![\w'-])", re.IGNORECASE),
@@ -1193,10 +1244,47 @@ def _claimed(rest: str) -> list[tuple[int, int, tuple[str, ...], str]]:
             continue
         for match in pattern.finditer(folded):
             start, end = match.span()
-            if not any(start < e and s < end for s, e, _k, _n in claimed):
-                claimed.append((start, end, keys, name))
+            if any(start < e and s < end for s, e, _k, _n in claimed):
+                continue
+            if script and not _written_as_place(folded, start, end, keys, claimed):
+                continue
+            claimed.append((start, end, keys, name))
     claimed.sort()
     return claimed
+
+
+@cache
+def _ambiguous_forms() -> dict[str, frozenset[str]]:
+    return {key: frozenset(_arabic_forms(spelling)) for key, spelling in AMBIGUOUS_ARABIC.items()}
+
+
+def _written_as_place(
+    folded: str,
+    start: int,
+    end: int,
+    keys: tuple[str, ...],
+    claimed: list[tuple[int, int, tuple[str, ...], str]],
+) -> bool:
+    """Whether an Arabic spelling found at ``start``-``end`` of ``folded`` is a place: always, unless it is
+    also a word of a sentence (:data:`AMBIGUOUS_ARABIC`); then only after a word that writes a place ("في
+    صور", "قضاء عاليه"), with "ب" joined to it ("بصور"), next to a word in Latin letters ("in عاليه"), or with
+    "و" joined to it right after a place ("صيدا وصور")."""
+    forms = _ambiguous_forms().get(keys[0]) if len(keys) == 1 else None
+    written = folded[start:end]
+    stems = [
+        stem for form in forms or () for stem in (form, form.removeprefix("ال")) if written.endswith(stem)
+    ]
+    if not stems:  # no ambiguous spelling, or a longer one ("المنية الضنية")
+        return True
+    joined = written[: len(written) - len(stems[0])]  # the letters joined before it ("ب", "و", "وب")
+    if "ب" in joined or _ARABIC_PLACE_BEFORE.search(folded[max(0, start - 20) : start]):
+        return True
+    # a word of another script next to it ("nutrition in عاليه", "for بشري", "à صور"): a name in a question
+    # written in English or French
+    before, after = re.search(r"(\S*)\s*$", folded[:start]), re.match(r"\s*(\S*)", folded[end:])
+    if any(_LATIN.search(m.group(1)) for m in (before, after) if m):
+        return True
+    return "و" in joined and any(0 <= start - e <= 2 for _s, e, _k, _n in claimed)
 
 
 def names_in(text: str) -> list[str]:

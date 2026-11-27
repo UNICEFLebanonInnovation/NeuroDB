@@ -202,13 +202,15 @@ REQUEST_STOP = frozenset(
     # the words of a request, of courtesy or urgency ("could you provide the available evidence on", "hi,
     # can u get me", "please prepare", "what is currently known", "among affected children", "info", "asap")
     "provide send get prepare present indicate available currently affected concerned comparison grateful "
-    "summarising summarizing info information hi hey hello dear asap urgent urgently lence "
+    "summarising summarizing info hi hey hello dear asap urgent urgently lence lense lenses lenz "
     # "the same thing for Bekaa"
     "thing".split()
 )
 # words that only rank the findings that hold them first, never a word a finding must hold ("the trend in
-# child marriage": a finding on child marriage that gives no trend is read too)
-RANK_ONLY = frozenset({"trend", "trends"})
+# child marriage": a finding on child marriage that gives no trend is read too), and the verbs a measure is
+# written with ("% of children covered by MHPSS", "children reached by cash transfers", "what percentages are
+# reported on learning loss": a finding on MHPSS that says "received" is read too)
+RANK_ONLY = frozenset({"trend", "trends", "covered", "covers", "covering", "reached", "reaching", "reported"})
 # words a rework uses that are words of a subject too ("Arabic literacy", "informal settlements", "focus group
 # discussions", "water points", "parenting style", "longer distances to school"): left out only of a question
 # that reworks the earlier answer (:data:`REWORKS`: "translate it to Arabic", "make it more formal", "rewrite
@@ -292,6 +294,14 @@ _OPENS = (
 # "address" as the verb of a request (opening the question or a clause, or after "that", "which", "who" or
 # "to": "address stunting in Akkar", "the studies that address stunting", "how to address it"), never the noun
 # of a subject ("birth registration address")
+# "information" asked for ("share information on stunting", "any information about", "what information do we
+# have"): a request's word; never "access to information", "lack of information", "information sessions"
+INFORMATION_ASKED = re.compile(
+    r"(?<!\bto\s)(?<!\bof\s)(?<!\band\s)(?<!['’]s\s)\binformation\b(?!\s+(?:sessions?|campaigns?|systems?|"
+    r"management|technology|technologies|needs|sharing|services|materials|centres?|centers?|desks?|points?|"
+    r"channels?|gaps?|literacy|dissemination|access|and\s+communication)\b)",
+    re.IGNORECASE,
+)
 ADDRESS_VERB = re.compile(rf"(?:{_OPENS}|\b(?:that|which|who|to)\s+)address(?:es|ed|ing)?\b", re.IGNORECASE)
 _REWORK_VERBS = (
     r"(?:adjust|revise|shorten|lengthen|extend|expand|change|update|edit|modify|amend|tweak|simplify|"
@@ -371,7 +381,7 @@ REFERS = re.compile(
     # refugees please"), never one that opens a question of its own ("Focusing on Akkar, what are the main
     # barriers?", "focus on child labour in the Bekaa: what do the studies say?")
     + r"|^\W*(?:(?:and|now|so|then|but|ok|okay)\s+)*(?:(?:with|through|using)\s+(?:a|an|the|more)\s+"
-    r"(?:[\w-]+\s+)?)?(?:focus(?:ed|es|ing|sed|sing)?|lens|lence)\s+(?:more\s+|only\s+|mainly\s+|"
+    r"(?:[\w-]+\s+)?)?(?:focus(?:ed|es|ing|sed|sing)?|lens|lenses|lence|lense|lenz)\s+(?:more\s+|only\s+|mainly\s+|"
     r"specifically\s+|particularly\s+|especially\s+)?(?:on|upon)\b"
     r"(?![^.?!:;,]*[.?!:;,]\W*\w)(?![^.?!:;,]*\b(?:what|how|why)\b)",
     re.IGNORECASE,
@@ -461,6 +471,19 @@ PEOPLE_KINDS = {
 # the words of a group of people ("girls", "boys", "gender", "disability", "adolescents", "refugees"): "what
 # about girls?" or "and for refugees?" asks about that group on the earlier subject, never a new subject
 PEOPLE = frozenset().union(*PEOPLE_KINDS.values())
+# the words of an aspect of a subject, or of what a request asks of it ("what about the barriers?", "how about
+# the main reasons?", "barriers in Akkar?", "sources for Tripoli?", "differences by governorate?"): in a
+# follow-up, an angle on the earlier subject as a group of people is (searched with it, never a switch to them
+# alone nor a question of its own); in a first question, words of its subject
+ASPECTS = frozenset(
+    "barrier barriers obstacle obstacles challenge challenges reason reasons cause causes driver drivers "
+    "determinant determinants factor factors consequence consequences effect effects impact impacts outcome "
+    "outcomes risk risks need needs gap gaps trend trends difference differences disparity disparities "
+    "solution solutions recommendation recommendations response responses intervention interventions service "
+    "services programme programmes program programs policy policies level levels source sources reference "
+    "references report reports document documents study studies example examples quote quotes chart charts "
+    "map maps evidence data findings lessons practices".split()
+)
 # a question asking for a number: the findings that give figures come first
 FIGURES = re.compile(
     r"%|\b(?:numbers?|rates?|percent(?:ages?)?|how\s+many|how\s+much|proportions?|prevalence|figures?|"
@@ -1092,9 +1115,9 @@ TIME_FRAMES = tuple(
         ("since", rf"\bfrom\s+({_Y})\b(?!{_EVENT})"),
         ("after", rf"\bafter\s+({_Y})\b(?!{_EVENT})"),
         # "last year" (not "the last year" nor "the past year"): the previous calendar year; "since last
-        # year": that year and this one
-        ("last", r"\b(?:(since)\s+|(?:in|from|of|during|for)\s+)?(?<!\bthe\s)(?<!\bpast\s)"
-                 r"(?:last|previous)\s+year(?:['’]s)?(?![\w-])"),
+        # year" or compared with it ("compared to last year", "higher than last year"): that year and this one
+        ("last", r"\b(?:(since|compared\s+(?:to|with)|than|vs\.?|versus)\s+|(?:in|from|of|during|for)\s+)?"
+                 r"(?<!\bthe\s)(?<!\bpast\s)(?:last|previous)\s+year(?:['’]s)?(?![\w-])"),
         ("past", rf"\b(?:(?:in|over|during|for|within)\s+)?(?:the\s+)?(?:past|last|previous|recent)\s+"
                  rf"(?:({_HOW_MANY})\s+)?(years?|yrs?|months?|decades?)\b"),
         ("this", r"\b(?:this|the\s+current|current)\s+year\b"),
@@ -1120,12 +1143,17 @@ TIME_FRAMES = tuple(
                    r"\b(?:most\s+)?recent(?:ly)?(?=\s*(?:[?.!,;:]|$))"),
     )
 )  # fmt: skip
-# "anything newer", "anything more recent", "is there an update": the latest, unless the question names years
-# of its own ("is there an update this year?"); in a follow-up, the years after the earlier question's
-# (:meth:`TimeFrame.followed`)
+# "anything newer", "anything more recent", "is there an update", "newer figures": the latest, unless the
+# question names years of its own ("is there an update this year?"); in a follow-up, the years after the
+# earlier question's (:meth:`TimeFrame.followed`)
 NEWER = re.compile(
     r"\b(?:(?:any|some)(?:thing)?\s+(?:newer|more\s+recent)\b|(?:any|some)thing\s+new\b|"
-    r"what['’]?s\s+new\b|newer\b|more\s+recent\b|(?:an?|any|some|new|recent)\s+updates?\b)",
+    r"what['’]?s\s+new\b|(?:an?|any|some|new|recent)\s+updates?\b|"
+    # "newer" or "more recent" alone, or of the data ("more recent?", "newer figures"); never of the subject
+    # ("newer vaccines", "more recent arrivals")
+    r"(?:newer|more\s+recent)(?=\s*(?:[?.!,;:]|$)|\s+(?:data|figures|findings|evidence|studies|reports|"
+    r"information|info|numbers|statistics|stats|results|surveys|research|ones|years?|publications|documents|"
+    r"estimates|rates)\b))",
     re.IGNORECASE,
 )
 LATEST = "recent"  # the kind of "latest": when no finding of those years matches, the newest are read
@@ -1677,24 +1705,34 @@ def _distance(a: str, b: str, most: int, changed: bool = True) -> int:
 @cache
 def _never_read_as() -> frozenset[str]:
     """The words a misspelling is never read as, nor read for: request, format and common words, "national",
-    and every word of a place's name (a place is read by :mod:`neurodb.km.places`, never searched as a
-    word)."""
+    every word of a place's name (a place is read by :mod:`neurodb.km.places`, never searched as a word) and
+    the countries and nationalities of the region (:data:`COUNTRIES`)."""
     place_words = {
         w
         for p in (*places.GOVERNORATES, *places.DISTRICTS)
         for spelling in p.spellings
         for w in re.split(r"[\s'-]+", places.fold(spelling))
     }
-    every = _NOT_A_SUBJECT | search.STOP | search.KM_STOP | set(NATIONAL_WORD) | place_words
+    every = _NOT_A_SUBJECT | search.STOP | search.KM_STOP | set(NATIONAL_WORD) | place_words | COUNTRIES
     return frozenset(every)
+
+
+# the countries and nationalities of the region: a correct word that no finding may hold ("Palestinian
+# refugees from Syria"), never read as another ("syrian")
+COUNTRIES = frozenset(
+    "lebanon lebanese syria syrian syrians palestine palestinian palestinians iraq iraqi iraqis jordan "
+    "jordanian jordanians egypt egyptian egyptians turkey turkish sudan sudanese ethiopia ethiopian yemen "
+    "yemeni israel israeli gaza kurdish kurds armenia armenian armenians".split()
+)
 
 
 def closest(word: str) -> str:
     """The version's word (:func:`lexicon`) that ``word`` is a misspelling of, starting with its letter: one
-    letter left out or added, or two letters swapped (from :data:`TYPO_CHANGED` letters, also one changed, or
-    two such edits), written by the most findings, but never by more than :data:`TYPO_COMMON` of them; "" when
-    there is none, when ``word`` is shorter than :data:`TYPO_SHORTEST` letters or is a word of the version, or
-    when either is a request's, a common or a place's word (:func:`_never_read_as`)."""
+    letter left out or added, or two letters swapped (from :data:`TYPO_CHANGED` letters, two such edits, or
+    one letter changed; never two changed: "studying" is no "stunting"), written by the most findings, but
+    never by more than :data:`TYPO_COMMON` of them; "" when there is none, when ``word`` is shorter than
+    :data:`TYPO_SHORTEST` letters or is a word of the version, or when either is a request's, a common, a
+    place's or a country's word (:func:`_never_read_as`: "syria" is no misspelling of "syrian")."""
     never = _never_read_as()
     if len(word) < TYPO_SHORTEST or not (word.isascii() and word.isalpha()) or word in never:
         return ""
@@ -1703,13 +1741,20 @@ def closest(word: str) -> str:
     if any(w == word for w, _n in words_):
         return ""
     long = len(word) >= TYPO_CHANGED
-    most = 2 if long else 1
+
+    def distance(w: str) -> int:
+        """Letters left out, added or swapped (two at most in a long word), or one letter changed in a long
+        word: never two changed ("studying" is no "stunting")."""
+        if not long:
+            return _distance(word, w, 1, changed=False)
+        moved = _distance(word, w, 2, changed=False)
+        return moved if moved <= 2 else (1 if _distance(word, w, 1, changed=True) <= 1 else 3)
+
     found = [
-        (_distance(word, w, most, changed=long), -n, w)
+        (d, -n, w)
         for w, n in words_
-        if w not in never and n <= total * TYPO_COMMON
+        if w not in never and n <= total * TYPO_COMMON and (d := distance(w)) <= (2 if long else 1)
     ]
-    found = [f for f in found if f[0] <= most]
     return min(found)[2] if found else ""
 
 
@@ -1836,7 +1881,8 @@ _LEAD_IN = re.compile(
 
 def _groups(text: str, *, alone: bool = True, rework: bool = False, follow: bool = False) -> list[list[str]]:
     """A question's groups of words: all its characters read, its common words left out first, and the words
-    of a request (:data:`REQUEST_STOP`, "address" as a verb: :data:`ADDRESS_VERB`, and the words that only
+    of a request (:data:`REQUEST_STOP`, "address" as a verb: :data:`ADDRESS_VERB`, "information" asked for:
+    :data:`INFORMATION_ASKED`, and the words that only
     rank: :data:`RANK_ONLY`; in a question that reworks the earlier answer, ``rework``, those of
     :data:`REWORK_STOP` too; in a follow-up, ``follow``, those of :data:`FOLLOW_UP_REQUEST` that no word of a
     subject follows, and :data:`REWORK_STOP`'s when they are its only words: "the same in Arabic", "shorter
@@ -1844,7 +1890,7 @@ def _groups(text: str, *, alone: bool = True, rework: bool = False, follow: bool
     PostgreSQL's English stop words, which no finding's words hold). The language a question asks to translate
     into is never searched ("translate the findings on child marriage into Arabic")."""
     common = QUESTION_STOP | search.ENGLISH_STOP
-    asked = ADDRESS_VERB.sub(" ", REQUEST_PHRASES.sub(" ", text))
+    asked = INFORMATION_ASKED.sub(" ", ADDRESS_VERB.sub(" ", REQUEST_PHRASES.sub(" ", text)))
     if TRANSLATE.search(asked):
         asked = IN_A_LANGUAGE.sub(" ", asked)
     if follow or rework:  # "it is too long": the answer's
@@ -2049,14 +2095,15 @@ class Asked:
 
     @property
     def own_question(self) -> bool:
-        """Whether it is a question of its own, however short: words of a subject that are no group of people,
-        with a place, all of Lebanon, a breakdown or years of its own (never "anything newer", which asks
-        after the earlier ones), and no "and" that adds to the earlier answer ("child marriage Akkar",
-        "stunting in Baalbek?", "child marriage 2024")."""
+        """Whether it is a question of its own, however short: words of a subject that are no group of people
+        nor an aspect of the earlier subject (:func:`_angles_only`: "barriers in Akkar?"), with a place, all
+        of Lebanon, a breakdown or years of its own (never "anything newer", which asks after the earlier
+        ones), and no "and" that adds to the earlier answer ("child marriage Akkar", "stunting in Baalbek?",
+        "child marriage 2024")."""
         years = bool(self.frame.spans) and not self.frame.newer
         placed = self.reading.keys or self.reading.national or self.reading.breakdown or years
-        people = _people_only(self.follow_groups)
-        return bool(self.follow_groups) and not people and bool(placed) and not self.adds
+        angles = _angles_only(self.follow_groups)  # a group of people, an aspect ("barriers in Akkar?")
+        return bool(self.follow_groups) and not angles and bool(placed) and not self.adds
 
     def follows(self) -> bool:
         """In a conversation, a follow-up: a reference to the earlier answer, "and" with a group of people of
@@ -2064,7 +2111,7 @@ class Asked:
         (only places, years, codes or the words of a request: "can u do it for all lebanon?", "I need it in
         Arabic", "is there an update this year?"), or short unless a question of its own
         (:attr:`own_question`)."""
-        if self.refers or (self.adds and _people_only(self.follow_groups)) or not self.subject:
+        if self.refers or (self.adds and _angles_only(self.follow_groups)) or not self.subject:
             return True
         return self.words < FOLLOW_UP_WORDS and not self.own_question
 
@@ -2089,6 +2136,14 @@ def _people_only(groups: list[list[str]]) -> bool:
     """Whether every one of ``groups`` names a group of people (:data:`PEOPLE`: "girls", "gender",
     "refugees")."""
     return bool(groups) and all(any(alt.casefold() in PEOPLE for alt in g) for g in groups)
+
+
+def _angles_only(groups: list[list[str]]) -> bool:
+    """Whether every one of ``groups`` is an angle on an earlier subject: a group of people (:data:`PEOPLE`)
+    or an aspect of the subject (:data:`ASPECTS`: "barriers", "reasons", "sources")."""
+    return bool(groups) and all(
+        any(alt.casefold() in PEOPLE or alt.casefold() in ASPECTS for alt in g) for g in groups
+    )
 
 
 def _kinds(group: list[str]) -> set[str]:
@@ -2163,10 +2218,10 @@ def _placed(before: places.Reading, own: places.Reading) -> tuple[places.Reading
 
 
 def _switched(own: Asked, own_angles: list[list[str]]) -> bool:
-    """Whether a follow-up switches to another subject that is no group of people ("what about
-    vaccination?", "vaccination instead"; never "what about girls?", nor a rework): its words are searched
-    alone, in the earlier place and years."""
-    return own.switches and bool(own_angles) and not (own.reworks or _people_only(own_angles))
+    """Whether a follow-up switches to another subject that is no group of people nor an aspect of the
+    earlier one ("what about vaccination?", "vaccination instead"; never "what about girls?", "what about the
+    barriers?", nor a rework): its words are searched alone, in the earlier place and years."""
+    return own.switches and bool(own_angles) and not (own.reworks or _angles_only(own_angles))
 
 
 def _merged(before: Topic, own: Asked) -> Topic:
@@ -2291,7 +2346,7 @@ def retrieve(
     new_subject = switched = False
     if follow_up:  # the earlier subject, angles, places and years, unless the question names its own
         own_angles = [g for g in current if g != breakdown]
-        new_subject = bool(own_angles) and not (own.reworks or _people_only(own_angles))
+        new_subject = bool(own_angles) and not (own.reworks or _angles_only(own_angles))
         switched = new_subject and _switched(own, own_angles)
         if not switched:  # a group of people replaces the earlier ones of its kind ("and for girls?")
             angles = own_angles + [g for g in _unreplaced(before.angles, own_angles) if g not in own_angles]
@@ -2429,6 +2484,7 @@ def retrieve(
             # on such a subject, a switch to one): one of them is enough (never "national" alone)
             either = [g for g in searched if g != adjective]
             picked.loose = bool(run(*quorum(base, either, boost, required=required, need=1, **ask_for)))
+
         if (
             follow_up
             and angles_held
@@ -2471,6 +2527,32 @@ def retrieve(
                 on_angles = set(on.values_list("pk", flat=True))
                 first = [f for f in first if f not in again or f.pk in on_angles]
                 picked.cited_again = len(on_angles)
+        unyeared = replace(scope, year=page_years)
+
+        def newest() -> bool:
+            """The newest findings of every year (in the place named: "latest", none or few of those years
+            matching), and the line says so."""
+            in_years = picked.matched
+            qs, order = quorum(
+                unyeared.apply(KMFinding.objects.all()),
+                searched,
+                boost,
+                required=place or by_governorate,
+                **shape,
+                **ask_for,
+            )
+            if not run(qs, [F("year").desc(nulls_last=True), *order]):
+                return False
+            picked.recent, picked.in_years, picked.filters = (
+                ("few" if in_years else "none"),
+                in_years,
+                unyeared,
+            )
+            return True
+
+        # "anything newer?" and no finding of the place is: the place's newest (its earlier years too) before
+        # any other place's newer ones
+        newest_first = newer and latest and bool(place) and not picked.matched and newest()
         if place and searched and picked.matched < FEW_IN_PLACE:  # few name the place: the others too
             wider = [place, *([reading.broader()] if reading.broader() else [])]
             wide = {"prefer": wider, "figures": figures, "ranks": ranks}
@@ -2478,16 +2560,8 @@ def retrieve(
             if run(*quorum(base, searched, boost, **shape, **wide)):
                 picked.relaxed, picked.in_place = ("few" if in_place else "none"), in_place
                 place = None  # the search words below are looked for everywhere too
-        if latest and picked.matched < (1 if newer else FEW_IN_PLACE):  # "latest": none or few, the newest
-            unyeared = replace(scope, year=page_years)
-            wide_base = unyeared.apply(KMFinding.objects.all())
-            in_years = picked.matched
-            qs, order = quorum(
-                wide_base, searched, boost, required=place or by_governorate, **shape, **ask_for
-            )
-            if run(qs, [F("year").desc(nulls_last=True), *order]):
-                picked.recent, picked.in_years = ("few" if in_years else "none"), in_years
-                picked.filters, base = unyeared, wide_base
+        if latest and not newest_first and picked.matched < (1 if newer else FEW_IN_PLACE) and newest():
+            base = unyeared.apply(KMFinding.objects.all())  # "latest": none or few, the newest
         wants_more = picked.matched < MAX_FINDINGS or not_latin(typed) or typed_dead
         helped = False  # the search-words call suggested words
         if may_call and wants_more and remaining() >= TIME_LIMIT - TERMS_SKIP_AFTER:
@@ -2516,11 +2590,24 @@ def retrieve(
                     for g, held in zip(words_of, held_words, strict=True)
                     if held or tuple(g) in fixed
                 ]
-                qs, order = quorum(
-                    base, meant, boost, required=restricted_to, need=need_of(len(meant)), **ask_for
-                )
-                if run(qs, order):
-                    passes.insert(0, passes.pop())
+                # the findings that hold every word as meant first (those the words as typed found too), then
+                # the words as typed found, then those of the words as meant that hold fewer
+                every, order = quorum(base, meant, boost, required=restricted_to, need=len(meant), **ask_for)
+                fresh = every
+                for earlier_pass in matched:
+                    fresh = fresh.exclude(pk__in=earlier_pass.values("pk"))
+                with _shared_out():
+                    top = _top(every, order, cap * SPARE, MAX_FINDINGS * SPARE)
+                    added = fresh.count() if top else 0
+                if top:
+                    passes.insert(0, top)
+                    matched.append(every)
+                    picked.matched += added
+                    held_none = False
+                fewer = need_of(len(meant))
+                if fewer < len(meant) and run(
+                    *quorum(base, meant, boost, required=restricted_to, need=fewer, **ask_for)
+                ):
                     held_none = False
         if not picked.matched and place and held_none:  # no finding holds a word: the place's findings
             if run(*quorum(base, [], boost, required=place, figures=figures)):

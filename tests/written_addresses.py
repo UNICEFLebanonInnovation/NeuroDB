@@ -73,12 +73,35 @@ FORMS = {
     "F54 www": f"{LOCAL} at www.example.org",
     "F55 a path after": f"{LOCAL} at example.org/ops",
     "F56 a path after a spelled dot": f"{LOCAL} at example dot org/ops",
+    # a space after the dot before another ending, or a capital a phone's keyboard puts there; a quoted,
+    # starred or slashed "dot"; "<.>"
+    "F57 spaced dot, a country's ending": f"{LOCAL} at example. lb",
+    "F58 spaced dot, a capital": f"{LOCAL} at example. Org",
+    "F59 spaced dots, two labels": f"{LOCAL} at example. net. lb",
+    "F60 spaced dot, .invalid": f"{LOCAL} at example. invalid",
+    "F61 quoted at and dot": f"{LOCAL} 'at' example 'dot' org",
+    "F62 starred at and dot": f"{LOCAL} *at* example *dot* org",
+    "F63 slashed at and dot": f"{LOCAL} /at/ example /dot/ org",
+    "F64 <.>": f"{LOCAL} at example<.>org",
+    # a name holding a digit before a domain whose ending is also a word of two letters
+    "F65 a digit in the name, .it": "zfakemira2 at example.it",
+    # "(a)" for the at sign, look-alike dots and the Latin alpha, a dashed or underscored .invalid, any ending
+    # after a spelled dot that follows a name with a full stop
+    "F66 (a)": f"{DOTTED}(a)example.org",
+    "F67 middle dot": f"{LOCAL} at example\u00b7org",
+    "F68 Latin alpha": f"{LOCAL} \u0251t example.org",
+    "F69 dashes, .invalid": f"{LOCAL}-at-example-dot-invalid",
+    "F70 underscores": f"{LOCAL}_at_example_dot_org",
+    "F71 dotted name, dot and a long ending": f"{DOTTED} at example dot online",
 }
 # What a record's or a document's text keeps by design (the record rule): a plain word before "at" and a
 # domain in capitals, of another ending or with a space after its dot ("published at Example.Org", "located
 # at Tyre.Net", "located at Tyre. Net" stay), and look-alike or styled letters, read as the plain ones only in
 # what a person types
-RECORD_KEEPS = ("F09", "F11", "F12", "F13", "F14", "F15", "F41", "F42", "F43", "F44", "F45")
+RECORD_KEEPS = (
+    *("F09", "F11", "F12", "F13", "F14", "F15", "F41", "F42", "F43", "F44", "F45"),
+    *("F57", "F58", "F59", "F60", "F67", "F68"),
+)
 RECORD_FORMS = {form: written for form, written in FORMS.items() if form[:3] not in RECORD_KEEPS}
 # a sentence a person types, and one of a record or a document
 TYPED = "out of school children in Akkar, contact {} before June"
@@ -112,6 +135,29 @@ NOT_ADDRESSES = {
     "THE VISIT TOOK PLACE AT BAALBEK.IT WAS A GOOD VISIT.": "THE VISIT TOOK PLACE AT BAALBEK.IT WAS A GOOD VISIT.",
     "Kits arrived at 9am at halba.no delays.": "Kits arrived at 9am at halba.no delays.",
     "Teachers look at the dot plot each week.": "Teachers look at the dot plot each week.",
+    # a time or an item's number written with a full stop before "at" ("9.30am", "no.2"): no address's name
+    "The meeting began at 9.30am at halba.we met the principal.": (
+        "The meeting began at 9.30am at halba.we met the principal."
+    ),
+    "Arrived 10.15am at tyre.it was raining.": "Arrived 10.15am at tyre.it was raining.",
+    "Arrived 10.15am at tyre.rain was heavy.": "Arrived 10.15am at tyre.rain was heavy.",
+    "The session ended 12.30pm at saida.no further action.": "The session ended 12.30pm at saida.no further action.",
+    "Arrived 8.45am at school.no teachers were present.": "Arrived 8.45am at school.no teachers were present.",
+    "Visit no.2 at akkar.we met the principal.": "Visit no.2 at akkar.we met the principal.",
+    "Visit nb.3 at bekaa.no issues.": "Visit nb.3 at bekaa.no issues.",
+    "Follow-up planned for q3 at akkar.it will check the latrines.": (
+        "Follow-up planned for q3 at akkar.it will check the latrines."
+    ),
+    # a citation's or a page's words before "at" and a web address: the domain goes as a link, the words stay
+    "Report accessed at www.example.org/reports on 3 May 2024.": "Report accessed at [link withheld] on 3 May 2024.",
+    "The full report can be accessed at www.example.org/report.": "The full report can be accessed at [link withheld]",
+    "Contact us at www.example.org.": "Contact us at [link withheld]",
+    "Visit us at www.example.org for the tables.": "Visit us at [link withheld] for the tables.",
+    "The focal point at example.org confirmed.": "The focal point at [link withheld] confirmed.",
+    "Further details on the methodology at survey.example.org.": (
+        "Further details on the methodology at [link withheld]."
+    ),
+    "Guidelines at example.org were updated.": "Guidelines at [link withheld] were updated.",
 }
 # questions a person types that hold no address, and how they are sent: a place written with an abbreviation,
 # a sentence missing its space, a web address after a word (withheld as a link, its path too)
@@ -129,6 +175,32 @@ TYPED_NOT_ADDRESSES = {
     "Which visits cite the report at example.org/reports/2024?id=5&owner=rhaddad": (
         "Which visits cite the report at [link withheld]"
     ),
+    # a sentence missing its space after a place ("at Halba.please"): no address, whatever the word after it
+    "What were the main issues at Halba.please list them": "What were the main issues at Halba.please list them",
+    "how many schools were visited at zahle.thanks": "how many schools were visited at zahle.thanks",
+    "dropout at saida.compare with 2024": "dropout at saida.compare with 2024",
+    "issues at akkar.sorry I meant north": "issues at akkar.sorry I meant north",
+    "visite at Halba.les enfants": "visite at Halba.les enfants",
+    "how many visits at akkar.show me by district": "how many visits at akkar.show me by district",
+    "how many visits at akkar.ok": "how many visits at akkar.ok",
+    "any red flags at tripoli.thx": "any red flags at tripoli.thx",
+    # a sentence after a place and a full stop, its first word capitalised as a phone's keyboard writes it
+    "How many visits at Halba. Net enrolment rose?": "How many visits at Halba. Net enrolment rose?",
+    "Which partner works at Tyre. De facto the office moved?": (
+        "Which partner works at Tyre. De facto the office moved?"
+    ),
+    "Any visits at Akkar. Gov staff joined?": "Any visits at Akkar. Gov staff joined?",
+    # a time before "at"
+    "The meeting at 9.30am at halba.we met the principal?": "The meeting at 9.30am at halba.we met the principal?",
+    # a page's words before a web address, with its scheme or without
+    "I get an error at neurodb.example.org/fmm/visits": "I get an error at [link withheld]",
+    "what does the chart at neurodb.example.org/fmm show": "what does the chart at [link withheld] show",
+}
+# what a person types with an address after a link's scheme: no e-mail address, but its name goes as one would
+# (an earlier question kept so is read so too: what is sent and kept is the same on every turn)
+SCHEMED = {
+    "contact zfakemira at https://example.org": "contact [email withheld]",
+    "contact zfakemira at https://example.org/staff for the tables": "contact [email withheld] for the tables",
 }
 # addresses joined by a slash (a list of focal points) or before a path: each goes whole
 JOINED = (

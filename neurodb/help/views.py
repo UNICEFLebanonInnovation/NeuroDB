@@ -150,9 +150,10 @@ def stream(request: HttpRequest) -> HttpResponse:
         conversation = uuid.UUID(str(request.POST.get("conversation") or ""))
     except ValueError:
         conversation = uuid.uuid4()
-    path = assistant.page_path(
-        urlsplit(str(request.POST.get("page") or "")[:2000]).path[: assistant.PAGE_CHARS]
-    )
+    # read whole for an address, then cut: a cut inside one would leave its name
+    path = assistant.page_path(urlsplit(str(request.POST.get("page") or "")[:2000]).path)[
+        : assistant.PAGE_CHARS
+    ]
     title = assistant.clean(request.POST.get("title") or "", assistant.TITLE_CHARS)
     if _km_page(path):  # the KM Database is kept apart: no Finding ID or workbook title reaches the assistant
         path, title = KM_PAGE, KM_TITLE

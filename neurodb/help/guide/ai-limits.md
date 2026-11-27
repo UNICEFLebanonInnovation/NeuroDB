@@ -59,11 +59,14 @@ address.
   to Chat with Data or the Help assistant lose the person names NeuroDB knows, e-mail addresses, phone
   numbers and links. In what you type (a question to any assistant, the page's title, the words of a
   search), an e-mail address goes whole however it is written out: with "at" and "dot" in words, dashes,
-  brackets or quotes ("x [ at ] example [ dot ] org"), with an at sign and "dot", in capitals, with any
-  ending, with spaces around the dot, with letters that only look like "at" (styled, circled or from
-  another alphabet) or with characters nobody sees; the word before "at" and a web address goes too,
-  unless it names no one ("children at [link withheld]", "the dashboard at [link withheld]"). Your
-  earlier questions are cleaned so again each time they are sent. In notes, answers and action point
+  brackets, quotes, stars or slashes ("x [ at ] example [ dot ] org", "x 'at' example 'dot' org"), with an
+  at sign and "dot", in capitals, with any ending, with spaces around the dot (also a capital your phone
+  puts after it: "x at example. Org"), with letters that only look like "at" or a dot (styled, circled or
+  from another alphabet) or with characters nobody sees; the word before "at" and a web address goes too,
+  unless it names no one ("children at [link withheld]", "the dashboard at [link withheld]"). A sentence
+  missing its space after a place ("at Halba.please") or a time before "at" ("9.30am at halba.we met") is
+  no address and stays. Your earlier questions are cleaned so again each time they are sent, and come out
+  the same. In notes, answers and action point
   texts, an address goes whole when it is written with "dot", in brackets or dashes, with an at sign, in
   capitals with AT, or with a common ending in lower case after any word but a common one; after a plain
   word, a site's address in capitals, of another ending or with a space after its dot is taken as a link

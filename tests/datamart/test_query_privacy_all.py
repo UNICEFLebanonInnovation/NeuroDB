@@ -1380,6 +1380,21 @@ def test_the_benchmark_search_and_filters_stay_fast(point):
     assert time.perf_counter() - start < 20
 
 
+def test_a_narrative_written_in_sentences_takes_the_fast_path():
+    """A full stop at a sentence's end ("in the centre. Teachers") is nothing any cleaning rule needs: a
+    narrative written in sentences is told untouched at once, as one without full stops is; a space after
+    a domain's dot ("x at example. org", "x at example. Org") still is one."""
+    from neurodb.datamart import query as q
+
+    for text in (
+        "Group 7 met in the centre. Teachers attended the training on 2 days. The sessions went well.",
+        "Some children dropped out because of transport costs. Parents reported better attendance.",
+    ):
+        assert not q._TOUCHED.search(text), text
+    for text in ("write to x at example. org", "write to x at example. Org", "write to x at example. lb"):
+        assert q._TOUCHED.search(text), text
+
+
 # ---- round 5: what a search or a filter found never decides a refusal, a group, its order or a note
 def _answer(dataset: str = "action_points", **args):
     """An etools_query answer, or the message of its refusal."""

@@ -133,7 +133,8 @@ download the findings it read.
   or a percentage ("how many", "number of") reads the findings that give figures first. "Dropout" also finds
   "dropped out" and "drops out" ("children dropping out of school" is a dropout), and "gender" also finds
   findings on girls or boys. A misspelt word that no finding holds ("povrety") is read as the closest word the
-  findings write ("poverty") when the AI suggests no words.
+  findings write ("poverty") when the AI suggests no words; a word that is spelt right is never read as another
+  ("studying" stays "studying", "Syria" stays "Syria").
 - **Places.** Every governorate (Akkar, Baalbek-Hermel, Beirut, Bekaa, Keserwan-Jbeil, Mount Lebanon,
   Nabatieh, North, South) is understood in its usual spellings ("Mont Lebanon", "Jabal Lubnan", "Nabatiyeh",
   "Nabatiye", "Beqaa", "Beyrouth", "Liban-Nord", "Liban-Sud"), with or without accents or a French article
@@ -149,8 +150,9 @@ download the findings it read.
   "the south", "Liban-Sud", "the southern governorates", "the southern region" or "areas" and "Janoub" mean
   the South and Nabatieh governorates, whatever words follow ("the southern governorates in light of the
   escalation"); "the north", "North Lebanon", "Liban-Nord", "the northern governorates" and "the northern
-  region" mean the North and Akkar; "North governorate" or "South governorate" means that governorate only;
-  the line under the answer says so. "The southern region of the Bekaa" (a place after "of", "in" or "within")
+  region" mean the North and Akkar; "North governorate" or "South governorate", and "North Lebanon
+  governorate" or "the governorate of South Lebanon", mean that governorate only; the line under the answer
+  says so. "The southern region of the Bekaa" (a place after "of", "in" or "within")
   is the Bekaa. The answer reads only findings that name the places you write; when fewer than 10 do, it also
   reads the others that match your words, and the line under the answer says so ("No finding on this subject
   names Mount Lebanon: findings from all of Lebanon were read."). When none of your words is in any finding,
@@ -164,7 +166,8 @@ download the findings it read.
   subject ("the national education strategy"), never looked for alone: when no finding holds your other words,
   nothing matches, rather than findings that only say "nationally".
 - **Years.** "In the past 2 years" means this year and the two before it (in 2026: 2024 to 2026), "over the
-  last decade" 2016 to 2026, "in the past year" 2025 and 2026, and "last year" alone 2025 only; "since 2023",
+  last decade" 2016 to 2026, "in the past year" 2025 and 2026, and "last year" alone 2025 only ("compared to
+  last year" 2025 and 2026); "since 2023",
   "2023 onwards", "2019-2021", "in 2023", "2023" alone, "2022 and 2025" (each year), "this year", "recent
   figures", "latest" and "anything newer" work too, also before a comma or a full stop ("In 2024, ..."), as a
   school year ("the 2024 school year") and as the year of the data ("the 2024 out of school figures", "the
@@ -270,7 +273,9 @@ download the findings it read.
   a group of people ("and for girls?", "what about girls?", "what about refugees?") or an addition ("and
   the trend?", "and by nationality?") that findings elsewhere join keeps the subject, and the findings of
   all of Lebanon are read; otherwise its own words
-  are read alone, in the earlier place and years. A switch to another subject ("what about vaccination?",
+  are read alone, in the earlier place and years. An aspect of the earlier subject ("what about the
+  barriers?", "how about the main reasons?", "barriers in Akkar?", "sources for Tripoli?") stays on that
+  subject: its barriers, its reasons. A switch to another subject ("what about vaccination?",
   "how about vaccination?", "vaccination instead", "do the same for vaccination" after a question on child
   marriage in Akkar) reads that subject alone in the earlier place and years at once, never only the
   findings that hold the earlier subject too. A follow-up's own words on a subject of their own ("what
@@ -286,8 +291,8 @@ download the findings it read.
   counts like any question. Its own place, years, "all Lebanon" (no place) or "all governorates" (findings
   that name a governorate) replace the earlier ones; "and by district?" after a place reads that place by
   its districts (the findings that name more of them first); "anything newer?", "more recent?" or "any
-  update?" reads the years after the earlier ones up to this year (the newest findings when none is newer,
-  and the line says so); its own words are angles added to the subject ("with a lens on gender, and
+  update?" reads the years after the earlier ones up to this year (the newest findings of the same place
+  when none is newer, and the line says so); its own words are angles added to the subject ("with a lens on gender, and
   disability": a finding on either). The places and years of an earlier question are kept however many
   reworks come between (the last 20 questions of the conversation that were answered or matched nothing
   are read for them; the AI is sent the last 4 answered ones). The line under the answer says what was

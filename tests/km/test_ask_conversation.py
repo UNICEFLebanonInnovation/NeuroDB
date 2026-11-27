@@ -255,6 +255,42 @@ def test_a_follow_up_of_no_word_of_its_own_on_a_two_word_subject_reads_either(ai
     assert read(picked) == set(SPLIT[1:]) and picked.loose
 
 
+ASPECTS = (
+    "In Akkar, child marriage affected 9% of girls.",
+    "In Akkar, poverty was the main barrier to ending child marriage.",
+    "In Akkar, the reasons for child marriage included poverty and insecurity.",
+    "In Akkar, child marriage had consequences for girls' schooling.",
+    "In Akkar, case management services for married girls in child marriage were scarce.",
+    "In Akkar, barriers to safe water included broken pipes.",
+    "In Akkar, the reasons children left school included transport costs.",
+    "In Akkar, health services were stretched.",
+    "In Akkar, the consequences of the flood were severe.",
+    "In Beirut, poverty was a barrier to ending child marriage.",
+)
+
+
+@pytest.mark.parametrize(
+    ("question", "on_subject"),
+    [
+        ("what about the barriers?", ASPECTS[1]),
+        ("how about the main barriers?", ASPECTS[1]),
+        ("what about the reasons?", ASPECTS[2]),
+        ("what about the consequences?", ASPECTS[3]),
+        ("what about the services available?", ASPECTS[4]),
+    ],
+)
+def test_what_about_an_aspect_of_the_subject_is_an_angle_on_it(ai, question, on_subject):  # noqa: F811
+    """ "what about the barriers?" asks about the barriers to the earlier subject: never a switch to the word
+    alone, nor the next follow-up's subject."""
+    load(("2024", ASPECTS))
+    earlier = [turn("child marriage in Akkar", ASPECTS[0])]
+    picked = _picked(question, earlier=earlier)
+    assert picked.follow_up and "subject" in picked.kept and picked.new_subject == [], question
+    assert on_subject in read(picked) and not read(picked) & set(ASPECTS[5:9]), question
+    picked = _picked("and for girls?", earlier=[*earlier, turn(question, on_subject)])
+    assert "child marriage" in searched(picked), question
+
+
 def test_a_group_of_people_after_what_about_stays_an_angle(ai):  # noqa: F811
     load(("2024", VACCINATION))
     picked = _picked("what about girls?", earlier=[turn("child marriage in Akkar", VACCINATION[0])])
@@ -331,6 +367,26 @@ def test_anything_newer_with_no_earlier_years_is_the_latest(ai, today):  # noqa:
     assert picked.years == "2026"
 
 
+def test_nothing_newer_in_the_place_reads_its_newest_before_any_other_place(ai, today):  # noqa: F811
+    """ "anything newer?" when no finding of the place is newer: the place's newest findings (its earlier
+    ones too), never findings of all of Lebanon in their place; the same after a time frame that reaches
+    this year."""
+    texts = (
+        ("2019", ["In Batroun, cash assistance reached 20% of families."]),
+        ("2025", ["In Batroun, cash assistance reached 35% of families."]),
+        ("2026", ["In Beirut, cash assistance reached 50% of families.", "Cash assistance rose nationally."]),
+    )
+    load(*texts)
+    for first in (
+        "how does cash assistance compare for 2025 in Batroun?",
+        "cash assistance in Batroun over the past three years",
+    ):
+        picked = _picked("is there anything newer?", earlier=[turn(first, texts[1][1][0])])
+        assert picked.places == "Batroun (the North)" and "places" in picked.kept, first
+        assert _ids(picked)[0] == ids_of(texts[1][1][0])[0], first
+        assert texts[0][1][0] in read(picked) and picked.relaxed != "none", first
+
+
 def test_the_years_after_the_earlier_ones_stay_and_none_newer_reads_the_newest(ai, today):  # noqa: F811
     load(*NEWER, ("2019", ["In Akkar, child marriage affected 9% of girls."]))
     earlier = [turn("child labour in Akkar in 2019"), turn("is there anything newer?")]
@@ -356,6 +412,22 @@ def test_the_years_after_the_earlier_ones_stay_and_none_newer_reads_the_newest(a
         ("what about Akkar?", True),
         ("Akkar in 2024?", True),
         ("stunting, more recent?", True),
+        # an aspect of the earlier subject, or a request's noun, with a place, a breakdown or years
+        ("barriers in Akkar?", True),
+        ("reasons in Akkar?", True),
+        ("challenges in Akkar?", True),
+        ("causes in Akkar?", True),
+        ("differences by governorate?", True),
+        ("sources for Tripoli?", True),
+        ("references for Akkar?", True),
+        ("reports in Akkar?", True),
+        ("recommendations for Akkar?", True),
+        ("examples in Akkar?", True),
+        ("quotes from Akkar?", True),
+        ("map by governorate?", True),
+        ("documents from 2024?", True),
+        ("drivers in 2024?", True),
+        ("levels in Zahle?", True),
     ],
 )
 def test_a_short_question_of_its_own_subject_and_place_or_years_is_new(ai, today, question, follows):  # noqa: F811
