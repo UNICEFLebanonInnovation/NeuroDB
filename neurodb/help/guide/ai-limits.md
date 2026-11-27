@@ -55,38 +55,44 @@ address.
 
 - **Never sent**: the team, the visit lead, monitors' e-mail addresses, who an action point is assigned
   to, child-level data, your name or e-mail address.
-- **Cleaned before sending**: monitors' notes, checklist answers, action point texts and your question
-  to Chat with Data or the Help assistant lose the person names NeuroDB knows, e-mail addresses, phone
-  numbers and links. In what you type (a question to any assistant, the page's title, the words of a
-  search), an e-mail address goes whole however it is written out: with "at" and "dot" in words, dashes,
-  brackets, quotes, stars or slashes ("x [ at ] example [ dot ] org", "x 'at' example 'dot' org"), with an
-  at sign and "dot", in capitals, with any ending, with spaces around the dot (also a capital your phone
-  puts after it: "x at example. Org", "x at hotmail. Fr"), with letters that only look like "at" or a dot
-  (styled, circled or from another alphabet) or with characters nobody sees; the word before "at" and a web
-  address goes too, unless it names no one ("children at [link withheld]", "the dashboard at [link
-  withheld]"). After such a word, a site's address goes as a link when it has a known ending, a newer one
-  (".online", ".tech", ".blog") or a country's (".sy", ".tv"), a path or a port: "write to info at [link
-  withheld]". A full link (one that starts with "https", "http", "mailto" or "//", also mistyped or
-  defanged: "http//", "htps://", "hxxps[:]//") is never an e-mail address: the word before it stays ("the
-  red flag at [link withheld]") unless it is shaped like an address's name ("x.y at" a full link). A
-  mistyped ending ("x at example.ogr", "x at example.con") or one that is also a word ("x at
-  example.today", "x at example.school before June", "x at example.show has the data") goes like any
-  other. A place written short ("at mt.lebanon", "at st.elias"), a sentence missing its space after a place
-  ("at Halba.please", "at akkar.show me by district"), a sentence after a place and ". " ("at schools. eg
-  water", "at schools. eg, latrines", "at Akkar. NGO staff", "the enrolment at Halba. Net or gross?", "What
-  was the GER at Halba. Net?", "Class 4B at Tyre. Info sessions"), a field's code ("Visit2 at Akkar. NGO
-  staff") or a time before "at" ("9.30am at halba.we met") is no address and stays; after ". ", ".net",
-  ".info", ".fr" and the like end an address when nothing of the sentence follows them ("x at example. net
-  before June", "x at hotmail. fr", "x at example. net Monday") or after "contact", "email" or "write to".
-  Your earlier questions are cleaned so again each time they are sent, and come out the same (in Chat with
-  Data and the Help assistant, a plain word before a full link goes then, unless it names no one). In
-  notes, answers and action point texts, an address goes whole when it is written with "dot", in brackets
-  or dashes, with an at sign, in capitals with AT (in a note that is not all in capitals, whatever follows
-  it), or with a common ending in lower case after any word but a common one, and so does a name with a
-  digit or a full stop before a full link; after a plain word, a site's address in capitals, of another
-  ending or with a space after its dot is taken as a link only, so "published at" a site's address keeps its
-  words, and after a common word a site's address the link rule does not know (".ngo", ".de") goes as a link
-  ("Contact us at [link withheld]").
+- **Cleaned before sending**: monitors' notes, checklist answers, action point texts and your question to Chat
+  with Data or the Help assistant lose the person names NeuroDB knows, e-mail addresses, phone numbers and
+  links. In what you type (a question to any assistant, the page's title, the words of a search), an e-mail
+  address goes whole however it is written out: with "at" and "dot" in words, dashes, brackets, quotes, stars
+  or slashes ("x [ at ] example [ dot ] org", "x 'at' example 'dot' org"), with an at sign and "dot", in
+  capitals, with any ending, with spaces around the dot (also a capital your phone puts after it: "x at
+  example. Org", "x at hotmail. Fr"), with letters that only look like "at" or a dot (styled, circled or from
+  another alphabet) or with characters nobody sees; the word before "at" and a web address goes too, unless it
+  names no one ("children at [link withheld]", "the dashboard at [link withheld]"). After such a word, a
+  site's address goes as a link when it has a known ending, a newer one (".online", ".tech", ".blog") or a
+  country's (".sy", ".tv"), a path or a port: "write to info at [link withheld]". A full link (one that starts
+  with "https", "http", "mailto" or "//", also mistyped or defanged: "http//", "htps://", "hxxps[:]//") is
+  never an e-mail address: the word before it stays ("the red flag at [link withheld]") unless it is shaped
+  like an address's name ("x.y at" a full link). A mistyped ending ("x at example.ogr", "x at example.con") or
+  one that is also a word, in any case, goes like any other after a word that may name someone, whatever
+  follows it ("x at example.today", "x at example.school", "x at example.ok", "x at example.show the files",
+  "x at EXAMPLE.NO", "x at Example.Online"); "point" in French for the dot too ("x arobase example point
+  org"). The word before "at" decides: after a word that names no one (also what a report says happened there,
+  "reported", "happened", "visited", "closed", "took place"..., and one of Lebanon's governorates, districts
+  and main towns), a sentence missing its space after a place stays ("how many schools were visited at
+  zahle.thanks", "What was reported at halba.who is responsible?", "The AP was closed at Akkar.No evidence
+  received"). A place written short ("at mt.lebanon", "at st.elias"), a sentence after a place and ". " ("at
+  schools. eg water", "at schools. eg, latrines", "at Akkar. NGO staff", "the enrolment at Halba. Net or
+  gross?", "What was the GER at Halba. Net?", "Class 4B at Tyre. Info sessions"), a field's code ("Visit2 at
+  Akkar. NGO staff") or a time before "at" ("9.30am at halba.we met") is no address and stays; after ". ",
+  ".net", ".info", ".fr" and the like end an address when nothing of the sentence follows them ("x at example.
+  net before June", "x at hotmail. fr", "x at example. net Monday", "x at example. net regarding the data", "x
+  at example. net is the focal point") or after "contact", "email" or "write to". Your earlier questions are
+  cleaned so again each time they are sent, and come out the same (in Chat with Data and the Help assistant, a
+  plain word before a full link goes then, unless it names no one). In notes, answers and action point texts,
+  an address goes whole when it is written with "dot", in brackets or dashes, with an at sign, in capitals
+  with AT (in a note that is not all in capitals, whatever follows it), or with a common ending in lower case
+  after any word but a common one, and so does a name with a digit or a full stop before a full link, or
+  before an ending in any case ("x.y at EXAMPLE.NO"), and a name a sentence writes to before an ending that is
+  also a word ("write to x at example.no before June"); a grade's code ("CE2 at school.it was crowded") stays;
+  after a plain word, a site's address in capitals, of another ending or with a space after its dot is taken
+  as a link only, so "published at" a site's address keeps its words, and after a common word a site's address
+  the link rule does not know (".ngo", ".de") goes as a link ("Contact us at [link withheld]").
 - **Documents the AI reads whole** (a document to review or summarise, a report's pages, a Word or text
   CPD, the daily review's findings, the What's new note) lose their e-mail addresses by the same rule as
   notes; links stay in them. A CPD in PDF is sent as the file, as it is.

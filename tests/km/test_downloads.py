@@ -544,3 +544,21 @@ def test_a_towns_spelling_cited_with_a_lettered_year_or_a_page_is_never_download
         assert not exports.search_words_safe(question, privacy.NOBODY), question
         assert "Naameh" not in exports.question_words(question, privacy.NOBODY)
         assert "Akar" not in exports.question_words(question, privacy.NOBODY)
+
+
+def test_a_source_a_speaker_and_an_address_whose_ending_is_a_word_are_never_downloaded(client_viewer):
+    """Round 3's shapes: a town's spelling after "adapted from", a name after "According to", a speaker after a
+    quote and "said", a place of several words that reads as a name in "et al.", an address whose ending is
+    also a word of a sentence: none is downloaded."""
+    edits = {
+        ("findings", 2, "Key Finding"): "Table adapted from Naameh 2021 shows that fake girls married early.",
+        ("findings", 2, "Finding Analysis"): "According to Fakedoe 2019, 40% of fake children worked.",
+        ("findings", 3, "Key Finding"): "“I left school to work,” said Fakename, 14.",
+        ("findings", 3, "Finding Analysis"): "Saad Nayel et al. (2020) found that fake fees rose.",
+        ("findings", 4, "Key Finding"): "For the data, write to zayna.fakeharb at Example.No before June.",
+    }
+    factory.load(factory.workbook(documents=1, findings=4, edits=edits))
+    _, body = _get(client_viewer, export="csv")
+    for name in (b"Naameh", b"Fakedoe", b"Fakename", b"Saad Nayel", b"fakeharb", b"Example.No"):
+        assert name not in body, name
+    assert b"fakeharb" not in _xlsx_text(_get(client_viewer, export="xlsx")[1]).lower()

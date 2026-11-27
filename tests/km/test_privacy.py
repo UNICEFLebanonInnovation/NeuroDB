@@ -642,6 +642,28 @@ TOWN_CITED = (
     ("Fake rates rose, as shown in Kousba 2019b.", ("Kousba",)),
     ("Dropout rose in Naameh 2019, pp. 4-5, for girls.", ("Naameh",)),
     ("Child labour rose (in Naameh 2019a).", ("Naameh",)),
+    # more citing words before "in" or "from", "as" within the two words before it, "e.g.," before it
+    ("As found in Naameh 2021, 12% of girls married before 18.", ("Naameh",)),
+    ("As mentioned in Akar 2018, fees rose.", ("Akar",)),
+    ("As indicated in Kousba 2019, fees rose.", ("Kousba",)),
+    ("As explained in Hasroun 2020, fees rose.", ("Hasroun",)),
+    ("As observed in Naameh 2021, fees rose.", ("Naameh",)),
+    ("As suggested in Akar 2018, fees rose.", ("Akar",)),
+    ("As seen in Kousba 2019, fees rose.", ("Kousba",)),
+    ("As detailed in Hasroun 2020, fees rose.", ("Hasroun",)),
+    ("As demonstrated in Naameh 2021, fees rose.", ("Naameh",)),
+    ("Similar results were found in Naameh 2021.", ("Naameh",)),
+    ("Table adapted from Naameh 2021.", ("Naameh",)),
+    ("Source: adapted from Akar 2018.", ("Akar",)),
+    ("Figures taken from Kousba 2019 show a rise in child labour.", ("Kousba",)),
+    ("Dropout was higher among girls (e.g., in Naameh 2021).", ("Naameh",)),
+    ("Figure 2 (adapted from Akar 2018) shows enrolment by grade.", ("Akar",)),
+    ("These patterns were also observed in Akar 2018.", ("Akar",)),
+    ("A similar trend was found in Hasroun 2020 and Kousba 2019.", ("Hasroun", "Kousba")),
+    ("As also noted in Naameh 2021, fees rose.", ("Naameh",)),
+    # "&" between two towns' one-word spellings joins authors, never places
+    ("Data from Akar & Naameh 2020 show high dropout.", ("Akar", "Naameh")),
+    ("Survey data from Hasroun & Kousba 2021 show high dropout.", ("Hasroun", "Kousba")),
 )
 
 
@@ -734,6 +756,13 @@ def test_a_common_word_before_a_year_and_a_place_in_parentheses_stays(text):
         "Fakeone 2020 (Lebanon) relates.",
         "Clement 2021 (Saida) found high rates.",
         "Fakeroberts 2021 (Saida) found high rates.",
+        # a family name with a common noun's ending, or an event's word in the singular
+        "Blankenship 2021 (Lebanon) found that 12% of girls married before 18.",
+        "Garrity 2021 (Lebanon) found high dropout.",
+        "McGuinness 2021 (Lebanon) found high dropout.",
+        "Holderness 2020: 20-60y; Fakedoe 2022: 10-15y",
+        "Storm 2021 (Lebanon) found high dropout.",
+        "Flood 2021 (Lebanon) found high dropout.",
     ],
 )
 def test_a_name_before_a_year_and_a_place_in_parentheses_is_withheld(text):
@@ -755,3 +784,190 @@ def test_a_name_with_a_digit_is_withheld_before_any_countrys_ending(text):
     for cleaned in (privacy.for_ai(text), privacy.for_download(text)):
         assert "zfakemira2" not in cleaned and "hsaab90" not in cleaned and "example" not in cleaned, cleaned
         assert privacy.EMAIL_WITHHELD in cleaned
+
+
+# ------------------------------------------------------------- round 3: the KM Database's names, converged
+def test_a_km_surname_never_takes_a_towns_place_exception():
+    """A surname of the KM Database's authors spelled like a town ("Naameh") is a person's wherever a citation
+    is written, also before a bare year after "in" ("Dropout rose in Naameh 2021"); without that surname,
+    a town's spelling there stays a place."""
+    people = privacy.People(surnames=frozenset({"naameh"}))
+    for text in ("Child labour rose in Naameh 2021.", "Similar results were found in Naameh 2021."):
+        for cleaned in (privacy.for_ai(text, people), privacy.for_download(text, people)):
+            assert "Naameh" not in cleaned and W in cleaned, cleaned
+    assert privacy.for_ai("Child labour rose in Naameh 2021.") == "Child labour rose in Naameh 2021."
+    assert privacy.for_ai("Dropout rose in Saida 2023.") == "Dropout rose in Saida 2023."
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Saad Nayel et al. (2020) found that 12% of girls married before 18.",
+        "Wadi Khaled et al. (2019) reported higher dropout.",
+        "Tal Abbas et al. (2019) reported higher dropout.",
+        "Tell Abbas et al. (2019) reported higher dropout.",
+        "Kab Elias et al. (2019) reported higher dropout.",
+        "Bar Elias et al. (2019) reported higher dropout.",
+        "Mar Mikhael et al. (2019) reported higher dropout.",
+        "Saad Nayel (2020) found that fees rose.",
+        "Dropout rose (Saad Nayel, 2021; Fakedoe, 2020).",
+        "According to Saad Nayel, 2021, fees rose.",
+        "Saad Nayel and Fakedoe (2020) found that fees rose.",
+    ],
+)
+def test_a_place_of_several_words_that_reads_as_a_name_is_withheld_in_a_citations_shape(text):
+    """A place's name of several words made only of words a name has ("Saad Nayel", "Tal Abbas", "Wadi
+    Khaled") is kept only where it is written as a place before a bare year ("in Saad Nayel 2023"), never in a
+    citation's shape ("et al.", "(2020) found", a citation's parenthesis, "NAME, 2021,")."""
+    place = re.match(r"(?:According to |Dropout rose \()?(\w+ \w+)", text).group(1)
+    for cleaned in (privacy.for_ai(text), privacy.for_download(text)):
+        assert place not in cleaned and W in cleaned, cleaned
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "child labour (Western Bekaa 2023)",
+        "out of school refugees in Majdal Anjar and Saadnayel 2023",
+        "child labour in Saad Nayel 2023",
+        "child labour in Tal Abbas 2023",
+        "numbers for Bar Elias, 2024",
+        "child labour (Jabal Mohsen 2023)",
+    ],
+)
+def test_a_place_of_several_words_written_as_a_place_stays(text):
+    for cleaned in (privacy.for_ai(text), privacy.for_download(text)):
+        assert cleaned == text
+
+
+@pytest.mark.parametrize(
+    ("text", "names"),
+    [
+        ("According to Kousba 2019, 40% of refugee children worked.", ("Kousba",)),
+        ("Key finding: According to Hasroun 2019, fake girls married early.", ("Hasroun",)),
+        ("According to Jane Fakedoe 2019, 40% worked.", ("Fakedoe",)),
+        ("Source: Fakedoe 2021.", ("Fakedoe",)),
+        ("Per Fakedoe 2019, 40% worked.", ("Fakedoe",)),
+        ("Based on Fakedoe 2019, dropout rose.", ("Fakedoe",)),
+        ("Adapted from Fakedoe and Roefake 2019.", ("Fakedoe", "Roefake")),
+        ("References: Fakedoe 2019.", ("Fakedoe",)),
+        ("Data: Fakedoe 2020.", ("Fakedoe",)),
+        ("Sources: Kousba 2019 and Fakeorg 2020.", ("Kousba", "Fakeorg")),
+        ("Sources: Fakedoe 2019; Roefake 2020.", ("Fakedoe", "Roefake")),
+        ("Sources: Fakedoe 2019, Roefake 2020 and Poefake 2021.", ("Fakedoe", "Roefake", "Poefake")),
+        ("Fakedoe's 2021 survey found high dropout.", ("Fakedoe",)),
+        ("The Fakedoe's 2020 study covered Akkar.", ("Fakedoe",)),
+        # a sentence that opens with "In", a name and a year
+        ("In Fakedoe 2021, 12% of girls married before 18.", ("Fakedoe",)),
+        ("In Fakedoe 2021 12% of girls married before 18.", ("Fakedoe",)),
+        ("Child marriage fell. In Fakedoe 2021, 12% of girls married before 18.", ("Fakedoe",)),
+    ],
+)
+def test_a_name_and_a_year_after_a_sources_words_are_withheld(text, names):
+    """ "According to", "Based on", "Source:", "Sources:" (each item of the list), "References:", "Adapted
+    from", "Data:", "Per" and a name before a bare year, a possessive name before a year and a study's word,
+    and a sentence that opens with "In", a name and a year: a citation; its kept names stay."""
+    for people in (privacy.NOBODY, privacy.People(surnames=frozenset({"kousba", "fakedoe"}))):
+        for cleaned in (privacy.for_ai(text, people), privacy.for_download(text, people)):
+            assert W in cleaned and not any(name in cleaned for name in names), cleaned
+            assert privacy.leftover(cleaned, people) == [], cleaned
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "According to UNICEF 2021, 40% of refugee children worked.",
+        "Based on Lebanon 2020 data, dropout rose.",
+        "Sources: UNICEF 2021 and Lebanon 2020.",
+        "Lebanon's 2020 survey found high dropout.",
+        "In Saida 2023, dropout rose.",
+        "In Lebanon 2020, dropout rose.",
+        "In Naameh 2021, dropout rose.",
+        "Since 2019, dropout rose.",
+    ],
+)
+def test_kept_names_after_a_sources_words_stay(text):
+    for cleaned in (privacy.for_ai(text), privacy.for_download(text)):
+        assert cleaned == text
+
+
+def test_a_sentence_that_opens_with_in_and_a_km_surname_is_withheld():
+    people = privacy.People(surnames=frozenset({"naameh"}))
+    cleaned = privacy.for_ai("In Naameh 2021, 12% of girls married before 18.", people)
+    assert "Naameh" not in cleaned and W in cleaned
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "\u201cI left school to work,\u201d said Fakename, 14.",
+        "\u201cI left school to work,\u201d Fakename, 14, explained.",
+        "In an interview, Fakename, 14, said she left school to work.",
+        "\u201cWe had no choice,\u201d said Naameh, 16.",
+        "\u201cWe had no choice,\u201d Naameh, 16, said.",
+        "In an interview with Sayda, 14, she said she left school.",
+        "\u201cWe had no choice,\u201d said Rayak, 16, about fake girls who married early.",
+        "\u201cI want to go back to school,\u201d says Fakename, 13.",
+        "\u201cI want to go back to school,\u201d explained Fakename, 15, a fake pupil in Akkar.",
+        '"I left school to work," said Fakename, 14.',
+        "She was interviewed with Fakename, 12, in Akkar.",
+    ],
+)
+def test_a_speaker_after_a_quote_said_or_an_interview_is_withheld(text):
+    """An interview's speaker by first name and age after a closing quote and a comma ("…,” said Fakename,
+    14."), after "said", "says", "told" or "explained", or after "In an interview," or "interview with"."""
+    speaker = re.search(r"Fakename|Naameh|Sayda|Rayak", text).group()
+    for cleaned in (privacy.for_ai(text), privacy.for_download(text)):
+        assert speaker not in cleaned and W in cleaned, cleaned
+        assert privacy.leftover(cleaned) == [], cleaned
+    assert speaker not in privacy.typed_for_ai(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "\u201cWe had no choice,\u201d said Mother, 34.",
+        "\u201cWe had no choice,\u201d said a teacher, 34 years in the job.",
+        "In an interview, Lebanon, 12 schools said fees rose.",
+        "\u201cFees rose,\u201d said UNICEF, 2021.",
+        "Enrolment rose, said Fakeorg, by 12.5% in Akkar.",
+    ],
+)
+def test_a_role_or_a_kept_word_after_said_stays(text):
+    for cleaned in (privacy.for_ai(text), privacy.for_download(text)):
+        assert cleaned == text
+
+
+def test_a_km_surname_in_a_vancouver_reference_is_withheld():
+    """A reference written the Vancouver way ("Akar J, Naameh R. Fake title. 2021."): every author whose
+    surname is one of the KM Database's, the last one before the title too."""
+    people = privacy.People(surnames=frozenset({"naameh", "akar", "kousba"}))
+    for text in (
+        "Naameh R, Akar J. Fake report. 2021.",
+        "Akar J, Naameh R. Fake title. 2021.",
+        "Akar J. Fake title. 2021.",
+        "Akar IJ. Fake title. 2021.",
+        "Evidence drawn from Naameh R, Akar J. Fake report on schools. Beirut; 2021.",
+    ):
+        for cleaned in (privacy.for_ai(text, people), privacy.for_download(text, people)):
+            assert "Akar" not in cleaned and "Naameh" not in cleaned, cleaned
+            assert privacy.leftover(cleaned, people) == [], cleaned
+    assert privacy.for_ai("Fake title. Beirut: Fake Press. 2021.", people) == (
+        "Fake title. Beirut: Fake Press. 2021."
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "For questions write to zayna.fakemira at Example.No before June.",
+        "Focal point: z.fakemira at EXAMPLE.BE for the annex.",
+        "Contact: zayna.fakemira at EXAMPLE.NO",
+        "For the data, write to zfakemira at example.no before June.",
+        "Contact: zfakemira arobase example point org",
+    ],
+)
+def test_a_km_text_loses_an_address_whose_ending_is_also_a_word(text):
+    for cleaned in (privacy.for_ai(text), privacy.for_download(text)):
+        assert "fakemira" not in cleaned and "example" not in cleaned.lower(), cleaned
+        assert privacy.EMAIL_WITHHELD in cleaned, cleaned

@@ -193,20 +193,24 @@ download the findings it read.
   code in the question: "Level A", "P2" (a pillar), "RQ3" (a research question), a Finding ID or a
   Document ID.
 - **What is sent to the AI.** Your question, the earlier questions and answers of the conversation, the
-  matching findings it reads, your filters in words, the date you asked and what the search understood
-  of places, years and a follow-up. Never the authors, never Document IDs (one you type goes as "this
-  document"), links or phone numbers, and never a name of a person: names of NeuroDB's people and of the
-  KM Database's authors are taken out of your question, in capitals or not, and names inside the findings
-  (citations, reference lists, people quoted, people named with their job) are written "[name withheld]".
-  A town's name that is also a family name ("Saida", "Naameh") is kept as a place only before a year after
-  "in", "for" or "from" ("in Saida 2023", "numbers for Sayda, 2024", "in Tyre, Qana and Houla 2024");
-  written as a citation ("Naameh (2021)", "Naameh et al.", "from Akar & Doering 2020", "As reported in
-  Naameh 2021", "in Naameh 2021a", "in Naameh 2021, p. 12") it is a name.
-  An e-mail address is taken out whole, also when it is written out with "at" and "dot" in words, with
-  dashes or in brackets ("x [ at ] example [ dot ] org", "x -at- example -dot- org"), in your question and
-  in the downloads; in your question also any name before "at" and a web address, in capitals or not, while a
-  common word stays ("children at [link withheld]"). If a name is still found,
-  nothing is sent.
+  matching findings it reads, your filters in words, the date you asked and what the search understood of
+  places, years and a follow-up. Never the authors, never Document IDs (one you type goes as "this document"),
+  links or phone numbers, and never a name of a person: names of NeuroDB's people and of the KM Database's
+  authors are taken out of your question, in capitals or not, and names inside the findings (citations,
+  reference lists, people quoted, people named with their job) are written "[name withheld]". A town's name
+  that is also a family name ("Saida", "Naameh"), or a place's name made only of words a name has ("Saad
+  Nayel", "Tal Abbas", "Bar Elias"), is kept as a place only before a year after "in", "for" or "from" ("in
+  Saida 2023", "numbers for Sayda, 2024", "in Tyre, Qana and Houla 2024"), and never when it is the surname of
+  one of the KM Database's authors; written as a citation ("Naameh (2021)", "Naameh et al.", "Saad Nayel et
+  al.", "from Akar & Naameh 2020", "As reported in Naameh 2021", "Similar results were found in Naameh 2021",
+  "Table adapted from Naameh 2021", "According to Naameh 2021", "Sources: Akar 2018; Naameh 2021", "in Naameh
+  2021a", "in Naameh 2021, p. 12") it is a name. So is a person quoted with an age ("“…,” said Fakename, 14",
+  "In an interview, Fakename, 14,") and a name before a year where the word is no event or topic ("Storm 2021
+  (Lebanon)"; "Cholera 2022 (Bebnine)" stays). An e-mail address is taken out whole, also when it is written
+  out with "at" and "dot" in words, with dashes or in brackets ("x [ at ] example [ dot ] org", "x -at-
+  example -dot- org"), in your question and in the downloads; in your question also any name before "at" and a
+  web address, in capitals or not, while a common word stays ("children at [link withheld]"). If a name is
+  still found, nothing is sent.
 - **The answer.** Each sentence ends with the findings it rests on, as [references]: each one opens its
   finding, in a new tab. An opening sentence that sums up the answer may have none. Figures are given
   exactly as each finding states them: never added up or averaged, compared only when each carries its

@@ -124,6 +124,13 @@ FORMS = {
     "F92 capitals, .it": "ZFAKEMIRA AT example.it",
     "F93 capitals, .IT": "ZFAKEMIRA AT EXAMPLE.IT",
     "F94 letters then digits in capitals, .be": "ZFAKEMIRA2 at example.be",
+    # a space on both sides of the dot before a capital ("example . Com"), the French "point" for the dot, a
+    # country's ending that is also a word of a sentence, capitalised or in capitals, a chat's word as the ending
+    "F95 a space around the dot, a capital": f"{LOCAL} at example . Com",
+    "F96 arobase and point": f"{LOCAL} arobase example point org",
+    "F97 a capitalised word of a sentence as the ending": f"{LOCAL} at Example.No",
+    "F98 dotted name, capitals, .NO": f"{DOTTED} at EXAMPLE.NO",
+    "F99 a chat's word as the ending": f"{LOCAL} at example.ok",
 }
 # What a record's or a document's text keeps by design (the record rule): a plain word before "at" and a
 # domain in capitals, of another ending or with a space after its dot ("published at Example.Org", "located
@@ -135,7 +142,7 @@ RECORD_KEEPS = (
     # a plain word before an ending no address has in lower case ("located at Tyre.Net"), or before a space
     # and .net, .info or .de ("at Halba. net enrolment"): only in what a person types
     *("F72", "F74", "F75", "F76", "F77", "F78", "F79", "F82"),
-    *("F83", "F84", "F85", "F86", "F87", "F88", "F89", "F90"),
+    *("F83", "F84", "F85", "F86", "F87", "F88", "F89", "F90", "F95"),
 )
 RECORD_FORMS = {form: written for form, written in FORMS.items() if form[:3] not in RECORD_KEEPS}
 # a sentence a person types, and one of a record or a document
@@ -258,6 +265,19 @@ NOT_ADDRESSES = {
     "PD2023 at akkar.no changes were needed.": "PD2023 at akkar.no changes were needed.",
     # capitals throughout (a note written in capitals): a sentence missing its space after a place
     "KITS DISTRIBUTED AT SITE.NO ISSUES.": "KITS DISTRIBUTED AT SITE.NO ISSUES.",
+    # a grade's or a programme's code (the French system's CE2 and CM1, BT2, TS1, BLN2, ALP1) or a plan's year
+    # before a place and a sentence missing its space after it; a code of capitals and digits that nothing
+    # writes to and no address follows
+    "25 children in CE2 at school.it was crowded.": "25 children in CE2 at school.it was crowded.",
+    "25 children in CM1 at halba.it was crowded.": "25 children in CM1 at halba.it was crowded.",
+    "Students of BT2 at school.it was hot.": "Students of BT2 at school.it was hot.",
+    "Students of TS1 at Tyre.no teachers were present.": "Students of TS1 at Tyre.no teachers were present.",
+    "BLN2 at Halba.no issues were reported.": "BLN2 at Halba.no issues were reported.",
+    "ALP1 at school.it was closed for repairs.": "ALP1 at school.it was closed for repairs.",
+    "Grade CE1 at Zahle.no books were delivered.": "Grade CE1 at Zahle.no books were delivered.",
+    "LCRP2023 at akkar.no changes were needed.": "LCRP2023 at akkar.no changes were needed.",
+    "Students of KZ3 at school.it was hot.": "Students of KZ3 at school.it was hot.",
+    "Students of QX12 at Halba.No teachers came.": "Students of QX12 at Halba.No teachers came.",
 }
 # a word that names no one before "at" and a domain of an ending the link rule does not know (".ngo", ".de",
 # ".jo"): the domain goes as a link in a record's text too, the words stay
@@ -442,6 +462,25 @@ TYPED_NOT_ADDRESSES = {
     "Compare Halba at akkar.show schools by district": "Compare Halba at akkar.show schools by district",
     # a sentence missing its space after a place, after a word that names no one
     "how many children at school.it was crowded": "how many children at school.it was crowded",
+    # a report's verb before "at" names no one: a sentence missing its space after a place stays, whatever
+    # its next word
+    "What happened at halba.it was flagged twice": "What happened at halba.it was flagged twice",
+    "Which issues were reported at halba.in 2023?": "Which issues were reported at halba.in 2023?",
+    "How many students enrolled at zahle.is that higher than 2023?": (
+        "How many students enrolled at zahle.is that higher than 2023?"
+    ),
+    "what happened at school.it was closed": "what happened at school.it was closed",
+    "What happened at Halba.It was flagged twice": "What happened at Halba.It was flagged twice",
+    "How many visits happened at halba.in 2023?": "How many visits happened at halba.in 2023?",
+    "What was reported at Halba.Who is responsible?": "What was reported at Halba.Who is responsible?",
+    "Which schools were visited at AKKAR.NO issues?": "Which schools were visited at AKKAR.NO issues?",
+    "How many sessions were held at saida.ok thanks": "How many sessions were held at saida.ok thanks",
+    "Which kits were distributed at tyre.show me": "Which kits were distributed at tyre.show me",
+    "Any stats at halba.total please": "Any stats at halba.total please",
+    "The training took place at halba.it was good": "The training took place at halba.it was good",
+    # a place's name before "at" names no one
+    "Compare Halba at akkar.ok": "Compare Halba at akkar.ok",
+    "Compare Tyre at halba.It was higher?": "Compare Tyre at halba.It was higher?",
 }
 # what a person types that holds an address, and how it is sent: a word after the domain that follows an
 # address ("before", "thanks"), the end of the text or a mark, or a word before the name that writes to one
@@ -527,6 +566,45 @@ TYPED_ADDRESSES = {
     "contact zayna.fakemira at htps://example.org": "contact [email withheld]",
     "contact zayna.fakemira at https//example.org": "contact [email withheld]",
     "contact zfakemira2 at hxxps[:]//example[.]org": "contact [email withheld]",
+    # after a word that may name someone, an ending that is also a word of a sentence or of a chat, or a newer
+    # one, in any case: whatever follows it (round 3, #0 and #4)
+    "Can you draft an email to zfakemira at EXAMPLE.NO about the Akkar figures?": (
+        "Can you draft an email to [email withheld] about the Akkar figures?"
+    ),
+    "write to zfakemira at EXAMPLE.BE": "write to [email withheld]",
+    "Who is Zayna at Example.Online?": "Who is [email withheld]?",
+    "zfakemira at Example.No has the data": "[email withheld] has the data",
+    "email zayna.fakemira at EXAMPLE.NO the Akkar numbers": "email [email withheld] the Akkar numbers",
+    "zfakemira at example.It": "[email withheld]",
+    "zfakemira at example.show the files": "[email withheld] the files",
+    "zfakemira at example.total by district": "[email withheld] by district",
+    "the focal point is zfakemira at example.ok": "the focal point is [email withheld]",
+    "my colleague zfakemira at example.please send": "my colleague [email withheld] send",
+    "contact zfakemira at example.show the files": "contact [email withheld] the files",
+    "write to zfakemira at example.show the data": "write to [email withheld] the data",
+    "zfakemira at example.who has the data": "[email withheld] has the data",
+    "zfakemira at example.how is the focal point": "[email withheld] is the focal point",
+    "zfakemira at example.ok before June": "[email withheld] before June",
+    "zfakemira at example.Thanks": "[email withheld]",
+    # a space on both sides of the dot before a capital (round 3, #2)
+    "Her address is zfakemira at example . Com": "Her address is [email withheld]",
+    "contact zfakemira at example . Org about the data": "contact [email withheld] about the data",
+    "zfakemira@example . Com": "[email withheld]",
+    # "point" for the dot, as French writes an address (round 3, #3)
+    "Son adresse est zfakemira arobase example point com": "Son adresse est [email withheld]",
+    "contactez zfakemira arobase example point org svp": "contactez [email withheld] svp",
+    "zfakemira@example point com": "[email withheld]",
+    "\u00e9crire \u00e0 zayna.fakemira arobase example point fr": "\u00e9crire \u00e0 [email withheld]",
+    "zfakemira at example point org": "[email withheld]",
+    # a dot and a space before ".net", ".info" or ".de", then a word a sentence about an address goes on with
+    # (round 3, #5)
+    "zfakemira at example. net is the focal point": "[email withheld] is the focal point",
+    "zfakemira at example. info has the files": "[email withheld] has the files",
+    "contact zfakemira at example. net regarding the data": "contact [email withheld] regarding the data",
+    "email zfakemira at example. de concerning the forms": "email [email withheld] concerning the forms",
+    "Send the forms to one of these: zfakemira at example. net": (
+        "Send the forms to one of these: [email withheld]"
+    ),
 }
 # what a record's or a document's text holds that is an address, and how it is sent: a name holding a digit
 # anywhere, letters then digits in capitals, "AT" in capitals before a word of two letters, an address's name
@@ -576,6 +654,36 @@ RECORD_ADDRESSES = {
     "Fake notes: zfakemira2 at hxxps[:]//example[.]org": "Fake notes: [email withheld]",
     "Fake notes: zayna.fakemira at http//example.org for the files.": "Fake notes: [email withheld] for the files.",
     "Fake notes: zayna.fakemira at mailto:example.org": "Fake notes: [email withheld]",
+    # after a name with a full stop, "_" or "+", a word of two letters as the ending in any case (round 3, #0)
+    "For questions write to zayna.fakemira at Example.No before June.": (
+        "For questions write to [email withheld] before June."
+    ),
+    "Focal point: z.fakemira at EXAMPLE.BE for the annex.": "Focal point: [email withheld] for the annex.",
+    "Contact: zayna.fakemira at EXAMPLE.NO": "Contact: [email withheld]",
+    "Focal point: z_fakemira at EXAMPLE.IT for the annex.": "Focal point: [email withheld] for the annex.",
+    "Focal point: zfakemira2 at EXAMPLE.IT for the annex.": "Focal point: [email withheld] for the annex.",
+    "Fake notes: zayna.fakemira at Example.Online": "Fake notes: [email withheld]",
+    # after a plain name, a word of two letters as the ending when a word that writes to it comes before and
+    # what follows follows an address, or when the dot is spelled out (round 3, #6)
+    "For the data, write to zfakemira at example.no before June.": "For the data, write to [email withheld] before June.",
+    "For the data, write to zfakemira at example.be before June.": "For the data, write to [email withheld] before June.",
+    "For the data, write to zfakemira at example dot no before June.": (
+        "For the data, write to [email withheld] before June."
+    ),
+    "For the data, write to zfakemira at example [dot] no before June.": (
+        "For the data, write to [email withheld] before June."
+    ),
+    "For the data, write to Zfakemira at example.no before June.": "For the data, write to [email withheld] before June.",
+    "Contact zfakemira at example.no for the files.": "Contact [email withheld] for the files.",
+    "Fake notes: zfakemira at example dot it": "Fake notes: [email withheld]",
+    # the French "point" for the dot (round 3, #3)
+    "Pour les donn\u00e9es, \u00e9crire \u00e0 zfakemira arobase example point org avant juin.": (
+        "Pour les donn\u00e9es, \u00e9crire \u00e0 [email withheld] avant juin."
+    ),
+    "Contact: zfakemira arobase example point org": "Contact: [email withheld]",
+    # capitals and digits written to, or followed by what follows an address
+    "Write to KZ3 at example.it for the annex.": "Write to [email withheld] for the annex.",
+    "Fake survey: data held by KZ3 at example.no.": "Fake survey: data held by [email withheld].",
 }
 # what a person types with an address's name before a link's scheme (a name's shape, or "at" written as no
 # sentence writes it): no e-mail address, but its name goes as one would (what is sent and kept is the same on
@@ -606,6 +714,8 @@ JOINED = (
     "zfakemira at example dot org/",
     "Contact: zfakemira at www.example.org",
     "Write to zfakemira at example.org/staff/zaynafake for the data.",
+    "Contacts: zfakemira arobase example point org/zaynafake arobase example point org",
+    "Contacts: zayna.fakemira at EXAMPLE.NO/zfakemira2 at EXAMPLE.BE",
 )
 
 

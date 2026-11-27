@@ -932,7 +932,9 @@ _TOUCHED = re.compile(
     # a full stop and a space before a domain's ending ("x. org", "x. net", "x. Info", "x. De", "x. Fr", "x.
     # it"), never a sentence's end ("centre. Teachers")
     r"|\w\.\s(?:org|com|gov|edu|int|lb|fr|uk|ch|ae|qa|jo|eg|nl|au|io|ngo|biz|invalid|net|info|de|sa|se|ca)\b"
-    r"|\w\.\s(?-i:it|me)\b",
+    r"|\w\.\s(?-i:it|me)\b"
+    # the French "point" for a dot before a domain's ending ("x arobase example point org")
+    r"|\bpoint\s+(?:org|com|net|int|gov|edu|lb|fr|uk|de|ch|ca|ae|sa|qa|jo|eg|nl|se|au|info|biz|ngo|io|co|invalid)\b",
     re.IGNORECASE,
 )
 PHONE_DIGITS = 7
