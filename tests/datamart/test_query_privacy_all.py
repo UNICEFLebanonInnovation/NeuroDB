@@ -1350,6 +1350,26 @@ def test_a_search_never_finds_a_part_of_a_written_out_address(point):
                     assert around == (needle in whole), (dataset, form, needle, whole[:200])
 
 
+def test_a_search_never_finds_a_part_of_an_address_withheld_after_a_dot_and_a_space(point):
+    """An address with a dot and a space before ".net", ".info" or ".de" ("x2 at example. net"), and the
+    record rule's other addresses: a search or a filter never confirms a part of the name the text sent no
+    longer holds."""
+    from neurodb.datamart.query import Rules, Sent
+    from tests.written_addresses import RECORD_ADDRESSES
+
+    texts = [f"Fake notes: zfakemira2 at example. {end} for the files" for end in ("net", "info", "de")]
+    texts += [f"Fake notes: zfakemira2 at example. {end} for the files" for end in ("NET", "Net", "De")]
+    texts += ["Please send the forms to mhaddad7 at example. info before Friday", *RECORD_ADDRESSES]
+    for dataset in ("action_points", "staff_trips"):
+        sent = Sent(Rules(frozenset(), dataset, whole=True))
+        for text in texts:
+            whole = query._clean_text(text, sent.rules, frozenset()).casefold()
+            assert "fakemira" not in whole and "mhaddad" not in whole, whole
+            for needle in ("zfakemira2", "zfake", "mira", "mhaddad7", "haddad"):
+                around = sent.holds({"description": text}, frozenset(), "description", needle, False)
+                assert around == (needle in whole), (dataset, needle, text)
+
+
 def test_the_benchmark_search_and_filters_stay_fast(point):
     """Not a measure of production: a guard that a search, a status equality and a sort on a few
     thousand records do not slow down by orders of magnitude (the full benchmark runs outside the suite)."""

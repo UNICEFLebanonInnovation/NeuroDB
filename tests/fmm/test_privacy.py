@@ -868,6 +868,12 @@ def test_a_record_text_loses_a_written_out_address_and_keeps_its_sentences():
 
     for text, sent in RECORD_ADDRESSES.items():
         assert privacy.clean(text, 1000, frozenset())[0] == sent, text
+    from tests.written_addresses import RECORD_LINKS
+
+    for text, sent in RECORD_LINKS.items():  # a domain the link rule does not know goes as a link
+        assert privacy.clean(text, 1000, frozenset())[0] == sent, text
+        with pytest.raises(privacy.PrivacyRefused):  # and the last check stops the domain as a link
+            privacy.assert_clean({"text": text}, frozenset())
     # addresses joined by a slash, or before a path: each goes whole, and the last check stops them
     from tests.written_addresses import JOINED, left
 

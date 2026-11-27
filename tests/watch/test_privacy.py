@@ -646,3 +646,18 @@ def test_a_record_text_loses_an_address_with_a_digit_capitals_or_before_a_links_
     for text, sent in RECORD_ADDRESSES.items():
         assert people.without_emails(text) == sent, text
         assert redact.text(text, 500, frozenset()) == sent, text
+
+
+def test_a_record_text_loses_a_domain_the_link_rule_does_not_know_as_a_link():
+    """A word that names no one before "at" and a domain of an ending the link rule does not know (".ngo",
+    ".de", ".jo"): the domain goes as a link in every record path, the words stay; a link defanged as a
+    security note writes it goes too."""
+    from tests.written_addresses import RECORD_LINKS
+
+    for text, sent in RECORD_LINKS.items():
+        assert people.without_emails(text) == sent, text
+        assert redact.text(text, 500, frozenset()) == sent, text
+    assert redact.LINK.sub(redact.LINK_WITHHELD, "Do not open hxxps[:]//example[.]org today") == (
+        "Do not open [link withheld] today"
+    )
+    assert redact.LINK.sub(redact.LINK_WITHHELD, "See example[.]org for it") == "See [link withheld] for it"

@@ -397,90 +397,113 @@ come from.
   Every character nobody sees goes first (Unicode's format characters: the zero-width ones, the
   left-to-right and right-to-left marks and isolates of text copied from Arabic, and the joiners,
   variation selectors and fillers).
-  - *What a person types* gets the typed rule (`people.without_addresses`): a question of Ask NeuroDB, of
-    the Monitoring insights chat, of the Help assistant or of the KM Database, each earlier question sent
-    again, the Help page's title and the search words of a Monitoring insights filter. "x at example.org",
-    "x(at)example.org", "x [ at ] example [ dot ] org", "x -at- example -dot- org", "x at example dot org",
-    "X AT EXAMPLE.ORG", "x at Example.Org", "x at mail.example.invalid", "x at example.ogr", "x at
+  - *What a person types* gets the typed rule (`people.without_addresses`): a question of Ask NeuroDB, of the
+    Monitoring insights chat, of the Help assistant or of the KM Database, each earlier question sent again,
+    the Help page's title and the search words of a Monitoring insights filter. "x at example.org",
+    "x(at)example.org", "x [ at ] example [ dot ] org", "x -at- example -dot- org", "x at example dot org", "X
+    AT EXAMPLE.ORG", "x at Example.Org", "x at mail.example.invalid", "x at example.ogr", "x at
     example.online", "x at example. org", "x at example. lb", "x at example. net. lb", "x at example.
     invalid", "x at example. Org" (a capital a phone's keyboard puts after ". ", for ".org", ".com", ".lb",
     ".ngo" and ".invalid"), "x at example. net before June", "x@example. info", "x at example .org", "x @
     example dot org", "x [@] example [dot] org", "x at example dot invalid", "x at example[.]invalid", "x at
-    example<.>org", "x arobase example.org", "x 'at' example.org", "x 'at' example 'dot' org", "x *at*
-    example *dot* org", "x /at/ example /dot/ org", "x at-sign example.org", "x at at example.org", "x at
-    example period org", "x(a)example.org", "x-at-example-dot-org", "x-at-example-dot-invalid" and
+    example<.>org", "x arobase example.org", "x 'at' example.org", "x 'at' example 'dot' org", "x *at* example
+    *dot* org", "x /at/ example /dot/ org", "x at-sign example.org", "x at at example.org", "x at example
+    period org", "x(a)example.org", "x-at-example-dot-org", "x-at-example-dot-invalid" and
     "x_at_example_dot_org" lose the whole address, the name before "at" too, and so do letters that look like
     an address's (a Cyrillic "а", a Latin "ɑ", a full-width "ａｔ" or "．", a middle dot between two letters
     "example·org", mathematical, circled or small-capital letters; only letters, "." and "@": "10³ km²"
-    stays). A word that names no one before "at" stays and the domain goes as a link, its path too, when it
-    is a web address's (a known ending, "www." or a path): a common word ("children at [link withheld]"), a
-    measure ("the enrolment at", "rates at", "dropout at") or a web address's, a citation's or a page's word
-    ("available", "published", "the dashboard", "the guide", "the profile", "accessed", "Contact us", "the
-    focal point", "the methodology", "the chart", "an error at", "the red flag at", "the page is blank at",
-    "I am stuck at", "the map hangs at"); "visits at mt.lebanon", "red flags at akkar.district" stay. Any
-    other word goes with the address, and so does what is left of a path after it ("x at example.org/ops",
-    "x at www.example.org"). A link written with its scheme ("https://", "ftp://", "hxxps://" as a link is
-    defanged) is never an e-mail address: the word before "at" stays and the link goes as a link ("the score
-    at [link withheld]"), unless that word has an address's name's shape (a full stop, "_", "+" or a digit)
-    or "at" is written as no sentence writes it ("x.y at https://example.org", "x (at) https://example.org"
-    go as an address). A domain's last part counts in any case when it is a known ending (".org", ".lb",
-    ".invalid"...), any other only in lower case and when it is no word of a sentence; after a plain word
-    and "at", an ending no address has counts too ("x at example.sy", "x at example.ogr", "x at
-    example.con", "x at example.online", "x at example.today", "x at example.np", "x at example dot ogr"),
-    but not a word a sentence missing its space after a place goes on with ("please", "thanks", "thx",
-    "compare", "sorry", "list", "ok" and the common words; ".show", ".how", ".who" and ".total" only when a
-    word of the sentence follows, "at akkar.show me by district"), nor a place's first word written short
-    ("mt.lebanon", "st.elias", "mar.elias"), so that "at Mt.Lebanon", "at St.Joseph", "at Akkar.No
-    evidence", "at Halba.please list them", "at zahle.thanks" and "at akkar.ok" stay. A common word's ending
-    (".school", ".health", ".group") counts after a word that names someone when what follows it follows an
-    address ("x at example.school before June"). After ". ", an ending a sentence may start with ("eg",
-    "qa", "uk", "fr", "ngo", "NGO", "Ngo", "Invalid", "LB", "Com", "ORG"), ". net", ". info" and ". de"
-    count always after an address's name (a full stop, "_", "+", a digit with a lower-case letter, letters
-    then digits: "x.y at example. info sessions"), an at sign with no space around it ("x@example. info") or
-    an "at" no sentence writes; never after a word that names no one ("the enrolment at Halba. Net or
-    gross?", "visits at Akkar. NGO staff"); otherwise (a plain word, an at sign with a space, a class, a
-    disease or a saint's school: "Training @ Halba. Info session", "Class 4B at Tyre. Info sessions",
-    "Students from St.Joseph at Tyre. Info sessions") only when what follows them follows an address: the
-    text's end or a mark ("x at hotmail. fr", "x at example. net (work)"), "before", "after", "until",
-    "asap", "thanks", "regards"... ("x at example. uk before June"), and after a word that writes to an
-    address ("contact", "email", "write to") any common word of a sentence or a request ("contact x at
-    example. net about the data"). So "at Halba. Net enrolment rose", "at Halba. info on dropout", "at Tyre.
-    De facto", "at akkar. uk funded" and "What was the GER at Halba. Net or gross?" stay. A time, an item's
-    number, a grade, a class, a version, "COVID-19" or "H1N1" before "at" ("9.30am at halba.we met", "Visit
-    no.2 at akkar.we", "KG2 at school.it was", "4B", "v2.0") names no one. A question kept before this rule,
-    whose domain alone was taken as a link ("x at [link withheld]"), loses the name when it is sent again
-    (Monitoring insights chat, Help assistant), and so does a plain word before a link with its scheme on the
-    next turn, which reads the same (unless it names no one, as a page's words: "the map hangs at", "the page
-    freezes at"). Not read: two addresses sharing one domain ("ask x, y at example.org": the first name
-    stays), "x at example. info for the data" with no word before the name that writes to it, and an
-    invisible separator glued to "at" ("x\u2063at example.org").
+    stays). A word that names no one before "at" stays and the domain goes as a link, its path too, when it is
+    a web address's (`people._a_link`: a known ending, "www.", a path, a port or a query, a newer ending such
+    as ".online", ".site", ".tech" or ".blog", or a country's of two letters such as ".sy", ".tv" or ".es",
+    and ".it", ".in" or ".be" when what follows them follows an address, so "write to info at [link withheld]"
+    and "children at school.it was crowded" stays: a role's address is a link's or an address's, never sent):
+    a common word ("children at [link withheld]"), a measure or what a question counts ("the enrolment at",
+    "rates at", "dropout at", "the GER at", "cases at", "partners at") or a web address's, a citation's or a
+    page's word ("available", "published", "the dashboard", "the guide", "the profile", "accessed", "Contact
+    us", "the focal point", "the methodology", "the chart", "an error at", "the red flag at", "the page is
+    blank at", "I am stuck at", "the map hangs at"); "visits at mt.lebanon", "red flags at akkar.district"
+    stay. Any other word goes with the address, and so does what is left of a path after it ("x at
+    example.org/ops", "x at www.example.org"). A link written with its scheme ("https://", "ftp://",
+    "hxxps://" or "hxxps[:]//" as a link is defanged, "https:/", "http//" or "htps://" as it is mistyped,
+    "//", "mailto:") is never an e-mail address: the word before "at" stays and the link goes as a link ("the
+    score at [link withheld]"), unless that word has an address's name's shape (a full stop, "_", "+" or a
+    digit) or "at" is written as no sentence writes it ("x.y at https://example.org", "x (at)
+    https://example.org" go as an address). A domain's last part counts in any case when it is a known ending
+    (".org", ".lb", ".invalid"...), any other only in lower case and when it is no word of a sentence; after a
+    plain word and "at", an ending no address has counts too ("x at example.sy", "x at example.ogr", "x at
+    example.con", "x at example.online", "x at example.today", "x at example.np", "x at example dot ogr"), and
+    a country's capitalised that is no word ("x at Example.Sy"), but not a word a sentence missing its space
+    after a place goes on with ("please", "thanks", "thx", "compare", "sorry", "list", "ok" and the common
+    words; those count after a plain name when a word that writes to it comes before it: "write to x at
+    example.ok thanks", "contact x at example.ok"; ".show", ".how", ".who" and ".total" count unless a word a
+    request goes on with follows them, `GOES_ON_AFTER`: "at akkar.show me by district", "at akkar.show the
+    total", "at akkar.total by district", "at akkar.how many", "at akkar.who reported" stay, "x at
+    example.show has the data" does not), nor a place's first word written short ("mt.lebanon", "st.elias",
+    "mar.elias"), so that "at Mt.Lebanon", "at St.Joseph", "at Akkar.No evidence", "at Halba.please list
+    them", "at zahle.thanks" and "at akkar.ok" stay. A common word's ending (".school", ".health", ".group")
+    counts after a word that names someone when what follows it follows an address ("x at example.school
+    before June"). After a name in capitals ("at" in capitals or not, never a common word), an ending in
+    capitals of two letters, or of three or more that is no word of a sentence (".ONLINE"; a common word's,
+    ".SCHOOL", may be one), counts when what follows it follows an address or is a word in lower case, in a
+    text of mixed case ("Contact: X at EXAMPLE.IT for the files"; a note all in capitals keeps "THE VISIT TOOK
+    PLACE AT BAALBEK.IT WAS"). After ". ", an ending a sentence may start with ("eg", "qa", "uk", "fr", "ngo",
+    "NGO", "Ngo", "Invalid", "LB", "Com", "ORG"), ". net", ". info", ". de", ". fr", ". sa", ". se" and ". ca"
+    in any case, and ". it" and ". me" in lower case count always after an address's name with a full stop,
+    "_" or "+" ("x.y at example. info sessions"), an at sign with no space around it ("x@example. info",
+    "x@hotmail. Fr") or an "at" no sentence writes; after a name whose only address's shape is a digit, unless
+    a word of the sentence goes on after them ("x2 at example. net for the files" goes, "Mar2024 at Akkar. NGO
+    staff" stays); never after a word that names no one ("the enrolment at Halba. Net or gross?", "visits at
+    Akkar. NGO staff") or a word after "the", "a", "any", "which", "what"... (`DETERMINERS`: "What was the GER
+    at Halba. Net?"); otherwise (a plain word, an at sign with a space, a class, a disease or a saint's
+    school: "Training @ Halba. Info session", "Class 4B at Tyre. Info sessions", "Students from St.Joseph at
+    Tyre. Info sessions") only when what follows them follows an address: the text's end or a mark ("x at
+    hotmail. fr", "x at example. net (work)"; ". it" and ". me" only so), "before", "after", "until", "asap",
+    "thanks", "regards", "yesterday", a day of the week... ("x at example. uk before June", "x at example. net
+    Monday"), and after a word that writes to an address ("contact", "email", "write to") any common word of a
+    sentence or a request ("contact x at example. net about the data"); "eg" then a mark and a word goes on
+    with the sentence ("at schools. eg, latrines"). So "at Halba. Net enrolment rose", "at Halba. info on
+    dropout", "at Tyre. De facto", "at akkar. uk funded", "at halba. it was closed" and "What was the GER at
+    Halba. Net or gross?" stay. A time, an item's number, a grade, a class, a version, "COVID-19", "H1N1" or a
+    field's code (a visit's, a shift's, a camp's, a lab's, a bus's, a cohort's, a floor's, a school's, a
+    centre's, an informal tented settlement's, "PS12", "PD12", "FY24") before "at" ("9.30am at halba.we met",
+    "Visit no.2 at akkar.we", "KG2 at school.it was", "4B", "v2.0", "Visit3 at halba.no issues", "ITS12 at
+    Bekaa. NGO staff") names no one. A question kept before this rule, whose domain alone was taken as a link
+    ("x at [link withheld]"), loses the name when it is sent again (Monitoring insights chat, Help assistant),
+    and so does a plain word before a link with its scheme on the next turn, which reads the same (unless it
+    names no one, as a page's words: "the map hangs at", "the page freezes at"). Not read: two addresses
+    sharing one domain ("ask x, y at example.org": the first name stays), "x at example. info for the data"
+    with no word before the name that writes to it, and an invisible separator glued to "at" ("x\u2063at
+    example.org").
   - *Record and document texts* get the record rule (`people.withhold_addresses`): narratives, answers,
-    look-up results, earlier answers, documents. An address ending in a common domain in lower case
-    (".org", ".com", ".lb"...), also after a space ("x at example .org"), or written with "dot", "period"
-    or "[.]", with an at sign or "at" in brackets, quotes or stars, goes whatever the word before "at",
-    unless that word names no one, as above ("more at unicef.org", "the dashboard at data.unicef.org",
-    "available at www.unicef.org/lebanon": the domain and its path are left to the link rule, which
-    withholds them as a link). Before a domain in capitals, of another ending or with a space after its
-    dot, only when that word holds a full stop, "_", "+" or a digit (never a time, an ordinal, a measure or
-    an item's number: "9.30am", "9am", "2nd", "no.2", "q3") or is in capitals with "AT" ("x.y at
-    Example.Org", "x_y at example.invalid", "X AT EXAMPLE.ORG", "x_y at example. org"). The last part of
-    a domain counts as for typed text, and a country's ending that is also a word of a sentence ("x.y at
-    example.it", "x2 at example.it") only after a name with a full stop, "_" or "+", a digit with a
-    lower-case letter anywhere ("z2fake at example.it", "x-2 at example.no"), three letters or more then
-    digits ("XFAKE2 at example.be"; "PD2023" is a code) or in capitals with "AT" ("X AT example.it"; "X AT
-    EXAMPLE.IT" when what follows it follows an address, as for typed text): "KG2 at school.it was crowded",
-    "Cases of COVID-19 at school.no classes", "THE VISIT TOOK PLACE AT BAALBEK.IT WAS" stay. After ". ", an
-    ending a sentence may start with, ". net", ". info" and ". de" count as for typed text, never after a
-    plain word. After a spelled dot, an ending longer than three letters only after such a name ("x.y at
-    example dot online"). An address's name before "at" and a link with its scheme goes with the link ("x.y
-    at https://example.org", "x2 at https://example.org"; "Release v2.0 at https://..." keeps its words).
-    So "published at Example.Org", "located at Tyre.Net", "at school.it was", "at 2pm at Halba.We met",
-    "Arrived 10.15am at tyre.it was raining", "Visit no.2 at akkar.we met", "DISTRIBUTION AT SITE.NO
-    ISSUES", "Students of 9B at Halba. Info sessions", "Meeting @ Zahle. Net enrolment" and "look at the dot
-    plot" keep their words (a domain still goes as a link), and so do "x at Example.Org", "x at example.
-    org", "x at example.ogr", "x at example.school", "x at example. net" and "x at example.it" after a plain
-    word; any other word before "at www." or a path goes with the address ("x at example.org/ops", a list
-    of focal points "x at example dot org/y at example dot org"), and so does what is left of the path;
+    look-up results, earlier answers, documents. An address ending in a common domain in lower case (".org",
+    ".com", ".lb"...), also after a space ("x at example .org"), or written with "dot", "period" or "[.]",
+    with an at sign or "at" in brackets, quotes or stars, goes whatever the word before "at", unless that word
+    names no one, as above ("more at unicef.org", "the dashboard at data.unicef.org", "available at
+    www.unicef.org/lebanon": the domain and its path are left to the link rule, which withholds them as a
+    link; a known ending the link rule does not take, ".ngo", ".de", ".ae", ".jo"..., or a domain with a space
+    is withheld as a link here, `people._left_to_links`: "Contact us at [link withheld]"). Before a domain in
+    capitals, of another ending or with a space after its dot, only when that word holds a full stop, "_", "+"
+    or a digit (never a time, an ordinal, a measure or an item's number: "9.30am", "9am", "2nd", "no.2", "q3")
+    or is in capitals with "AT" ("x.y at Example.Org", "x_y at example.invalid", "X AT EXAMPLE.ORG", "x_y at
+    example. org"). The last part of a domain counts as for typed text, and a country's ending that is also a
+    word of a sentence ("x.y at example.it", "x2 at example.it") only after a name with a full stop, "_" or
+    "+", a digit with a lower-case letter anywhere ("z2fake at example.it", "x-2 at example.no"), capitals
+    then digits (three letters or more then up to four digits, a dash before them too: "XFAKE2 at example.be",
+    "XFAKE1990", "XFAKE-2"; two then up to three: "ZM2"; "PD2023" is a code) or in capitals with "AT" ("X AT
+    example.it"; "X AT EXAMPLE.IT" and "X AT EXAMPLE.ONLINE" as for typed text): "KG2 at school.it was
+    crowded", "Cases of COVID-19 at school.no classes", "Visit3 at halba.no issues", "THE VISIT TOOK PLACE AT
+    BAALBEK.IT WAS" stay. After ". ", an ending a sentence may start with, ". net", ". info", ". de" and the
+    others count as for typed text, never after a plain word. After a spelled dot, an ending longer than three
+    letters only after such a name ("x.y at example dot online"). An address's name before "at" and a link
+    with its scheme (mistyped or defanged too) goes with the link ("x.y at https://example.org", "x2 at
+    https://example.org", "x2 at hxxps[:]//example[.]org"; "Release v2.0 at https://..." keeps its words). So
+    "published at Example.Org", "located at Tyre.Net", "at school.it was", "at 2pm at Halba.We met", "Arrived
+    10.15am at tyre.it was raining", "Visit no.2 at akkar.we met", "DISTRIBUTION AT SITE.NO ISSUES", "Students
+    of 9B at Halba. Info sessions", "Visit2 at Akkar. NGO staff", "Meeting @ Zahle. Net enrolment" and "look
+    at the dot plot" keep their words (a domain still goes as a link), and so do "x at Example.Org", "x at
+    example. org", "x at example.ogr", "x at example.school", "x at example. net" and "x at example.it" after
+    a plain word; any other word before "at www." or a path goes with the address ("x at example.org/ops", a
+    list of focal points "x at example dot org/y at example dot org"), and so does what is left of the path;
     look-alike letters are read as such only in typed text.
   - *Texts sent whole* with no other cleaning (a document to review or summarise, a periodic report's
     pages, a Word or text CPD, a daily review finding, a What's new line) lose their addresses by the
@@ -657,8 +680,10 @@ come from.
   and donor names are never taken for person names. A search, a `__contains` filter and an equality
   (`eq`, `ne`) look only at what Ask is sent: the database narrows first, then each record is checked,
   on the fields that can hold the text, as it would be sent (a place the text is written that no
-  cleaning rule can reach, with no address sign, link, title, first word of a known name or of the
-  record's own and fewer than seven digits around it, is taken as it is, without cleaning, so that a
+  cleaning rule can reach, with no address sign (an at sign, a dot between letters, a dot and a space
+  before an ending such as ". org", ". net", ". Info" or ". it": `query._TOUCHED`), link, title, first
+  word of a known name or of the record's own and fewer than seven digits around it, is taken as it is,
+  without cleaning, so that a
   search of a common word over 19,000 PRP reports takes 2 to 3 seconds; else each value cleaned once, a
   long text only around the searched words; an equality on a single plain word is left to the
   database). At most 20,000 records are looked in for a search or a `__contains`, 100,000 for an

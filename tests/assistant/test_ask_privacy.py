@@ -708,3 +708,9 @@ def test_addresses_joined_by_a_slash_or_before_a_path_go_whole_in_ask_and_the_ra
         assert help_assistant.clean(text_, 1000, frozenset()) == sent_, text_
     for text_, sent_ in RECORD_ADDRESSES.items():
         assert privacy.text(text_, frozenset()) == sent_, text_
+    from neurodb.datamart import query as dmq
+    from tests.written_addresses import RECORD_LINKS
+
+    for text_, sent_ in RECORD_LINKS.items():  # a domain the link rule does not know goes as a link
+        assert privacy.text(text_, frozenset()) == sent_, text_
+        assert dmq.clean_written(text_, frozenset()) == sent_, text_

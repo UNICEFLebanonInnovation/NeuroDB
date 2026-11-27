@@ -550,6 +550,18 @@ def test_a_km_question_keeps_what_holds_no_address_and_loses_what_does(monkeypat
         assert not left(ask._searchable(text)), text
 
 
+@pytest.mark.django_db
+def test_a_km_question_loses_what_a_record_loses():
+    """What a record's text loses ("ZFAKEMIRA AT EXAMPLE.IT holds the files", "ZFAKEMIRA1990 at example.it"),
+    a question typed with it loses too, and so do its search words."""
+    from neurodb.km import ask
+    from tests.written_addresses import RECORD_ADDRESSES, left
+
+    for text, sent in RECORD_ADDRESSES.items():
+        assert privacy.clean_question(text) == sent, text
+        assert not left(ask._searchable(text)), text
+
+
 # ------------------------------------------------------- a person's name that is also a town's (places.py)
 TOWN_NAMES = (
     "Naameh (2021) found that 12% of girls married before 18.",

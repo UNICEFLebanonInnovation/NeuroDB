@@ -929,8 +929,10 @@ _TOUCHED = re.compile(
     r"[^\x00-\x7f]|[@＠﹫]|\w\.\w|\s\.\s|\s\.\w|[\[({<'\"*/]\s*(?:at|dot|period|\.)\s*[\])}>'\"*/]"
     r"|-at-|_at_|_dot_|\(\s*a\s*\)|\b(?:dot|period|arobase)\b|\bat-sign\b|\bat\s+at\b"
     r"|\b(?:https?|ftp|mailto|javascript):"
-    # a full stop and a space before a domain's ending ("x. org"), never a sentence's end ("centre. Teachers")
-    r"|\w\.\s(?:org|com|gov|edu|int|lb|fr|uk|ch|ae|qa|jo|eg|nl|au|io|ngo|biz|invalid)\b",
+    # a full stop and a space before a domain's ending ("x. org", "x. net", "x. Info", "x. De", "x. Fr", "x.
+    # it"), never a sentence's end ("centre. Teachers")
+    r"|\w\.\s(?:org|com|gov|edu|int|lb|fr|uk|ch|ae|qa|jo|eg|nl|au|io|ngo|biz|invalid|net|info|de|sa|se|ca)\b"
+    r"|\w\.\s(?-i:it|me)\b",
     re.IGNORECASE,
 )
 PHONE_DIGITS = 7
