@@ -1677,15 +1677,19 @@ strongest; `neurodb.km.columns.CONFIDENCE_A_STRONGEST` turns on the colours once
   "at" holds a full stop, "_", "+" or a digit or is written in capitals with "AT": "x_y at Example.Org", "X AT
   EXAMPLE.ORG"; "published at Example.Org" keeps its words and its link), citation names ("Doe et al.", "(Doe,
   2019)", "Roe (2018)", "(Doe 2010, Roe 2020)", "(Doe 2002 methodology)", "Doe and Roe 2020", "in Doe 2016",
-  "In Doe 2021," at a sentence's start, a source's words before a name and a bare year ("According to Doe
-  2019", "Based on Doe 2019", "Source: Doe 2021", "Adapted from Doe 2019", "Data: Doe 2020", "Per Doe 2019"),
-  each item of a list of sources ("Sources: Doe 2019; Roe 2020"), "Doe's 2021 survey"; then the same name
-  elsewhere in that text), interview speakers ("– Fakename, 34", "Fakename, 11, was", "Fakename (20, male)",
+  "In Doe 2021," at a sentence's start, a source's words before a name and a bare year ("Based on Doe
+  2019", "Source: Doe 2021", "Adapted from Doe 2019", "Data: Doe 2020"), a name and a bare year after "did",
+  "does", "do", "by", "according to" or "per" (`C9`: "What did Doe 2019 say", "By Doe 2019", "According to
+  Doe 2019", "Per Doe 2019"; an event's or a topic's word, an exam's or a tool's word, `NOT_SOURCES`, or a
+  holiday, `HOLIDAYS`, stays there and there only: "How did Covid 2020 change", "By Brevet 2019", "What did
+  Easter 2023 attendance look like?", while "Christmas et al. (2019)" and "Source: Easter 2023" go), an item
+  after an earlier year and ";" ("Tyre and Halba 2019; Doe 2020"), each item of a list of sources ("Sources:
+  Doe 2019; Roe 2020"), "Doe's 2021 survey"; then the same name elsewhere in that text), interview speakers ("– Fakename, 34", "Fakename, 11, was", "Fakename (20, male)",
   "Fakename, a boy", "“…,” said Fakename, 14.", "“…,” Fakename, 14, explained", "In an interview, Fakename,
   14,", "interview with Fakename, 14"; never a role: "said Mother, 34"), reference lists ("Doe, J.", "Roe Poe,
-  M. C."; "Doe J" and "Doe J. Fake title" for a KM author; written the Vancouver way with two authors or more
-  in a text with a year, "Doe J, Roe PM. Fake title. 2019.", whatever the authors: `S1V`, never a word that is
-  no name, "Grade A, Grade B."), "Doe 2020:" and "Doe 2020 (Lebanon)" or "Doe 2021
+  M. C."; "Doe J" and "Doe J. Fake title" for a KM author; written the Vancouver way with two authors or
+  more, with or without a year, "Doe J, Roe PM. Fake title. 2019.", "Doe AB, Roe C.", whatever the authors and
+  with an author already withheld: `S1V`, never a word that is no name, "Grade A, Grade B."), "Doe 2020:" and "Doe 2020 (Lebanon)" or "Doe 2021
   (Bebnine)" (never an event's or a topic's word or a common noun in the plural: "Cholera 2022 (Bebnine)",
   "Floods 2023 (Saida)", "Displacement 2024 (Saida)" stay; a singular word with a common noun's ending or an
   event's word that is a family name too only when it is a common word or the text also writes it in lower
@@ -1698,9 +1702,14 @@ strongest; `neurodb.km.columns.CONFIDENCE_A_STRONGEST` turns on the colours once
   ("Minister Jane Doe", "Jane Doe, Director of"), a KM author's surname after a name withheld and a first name
   before one, the document's own authors by surname (also joined to digits or "_" anywhere in a word,
   "LCRP_Doe_2019", "survey_doe", or before a hyphen and digits, "Doe-2019"), the KM authors' full names and
-  names after a title are written "[name withheld]". Words that start a sentence ("However, 2021") are never
-  taken for a name. Months, places, organisations, survey and plan names, and acronyms are kept; links and
-  numbers are kept. NeuroDB's own list of people (Watch's) is never used and never learns these names.
+  names after a title (also "Amb.", "Sen.", "Pr.", "Rev.", "Hon." and other titles with a full stop:
+  `_MORE_TITLES`; a title right before a name withheld goes with it) are written "[name withheld]". Words that
+  start a sentence ("However, 2021") are never taken for a name. Months, places, organisations, survey and
+  plan names, and acronyms are kept; a place's word that is a given or a family name too
+  (`privacy._PLACES_NAMES_TOO`: "Jordan", "West", "Costa", "Arab", "France", "Georgia", "Wadi"...; never the
+  governorates "North" and "South") is a name in a citation's or a request's shape ("Jordan et al. (2020)",
+  "Tyre and Costa 2023", "By West 2019") and a place only where it is written as one ("refugees in Jordan
+  2019"); links and numbers are kept. NeuroDB's own list of people (Watch's) is never used and never learns these names.
 - The search box's words are written in the About sheet only when none of them names a KM author.
 - A printout follows the download rule: a finding or document page prints "Publishing organisations" (the
   download's value), never the authors (screen only), and every text the download writes otherwise (a name
@@ -1780,7 +1789,8 @@ asked). In order:
    Vantrell and Zorgwell 2020" goes whole; a pair is one of places only when a word that writes a place comes
    before it and every name of it is a place: "from Tyre and Qana 2024", "In Tyre and Qana 2023" keep both,
    "What about Saida and Tyre 2023?", "Visits to Chtoura and Tyre 2023", "Edited by Houla and Tyre 2021", "A
-   paper by Naameh and Jordan 2020" withhold the town's other spelling; "Akar and Tyre 2020 found" withholds
+   paper by Naameh and Jordan 2020" withhold the town's other spelling, and "Jordan" too; "Akar and Tyre 2020
+   found" withholds
    "Akar"; a connective that opens the sentence, "However", or a word that writes a place before a name kept,
    "In Tyre", is no name's word; a title stays whole with "and": "the Fakeword and Child Development Survey
    2023"; "&" joins a
@@ -1800,20 +1810,26 @@ asked). In order:
    already withheld in it makes it a list of sources), an
    interview's speaker "– Sayda, 14", "(Houla, 15)", "“…,” said Naameh,
    16", "In an interview with Sayda, 14,", and a document's own author "Naameh, R." (its surname is withheld
-   in that document's texts). In the question only (`privacy.typed_for_ai`), a name before a bare year after
-   "did", "does", "By", "according to" or "per" is a citation's ("What did Quenby 2019 say?"; an event's or a
-   topic's word stays, as before a year elsewhere: "How did Covid 2020 change enrolment?"), and a request's verb
-   that opens it or one of its sentences before places only, listed with commas or "and", then a bare year
-   (`REQUEST_VERBS`: "Show", "Compare", "Summarise", "Describe", "Map", ...; never "Tell": "Tell Abbas" is a
-   town) is read apart from the names after it when the question then names no one, kept in lower case where
-   the rule would otherwise read it with that name ("show Beirut and Tyre 2023"), so that a record's rule,
-   the final check and a download's About sheet read the kept question the same way; when a name is withheld,
-   the verb is read as any word ("Show Quenvell and Tyre 2023" → "[name withheld] and Tyre 2023"). It is read
-   with the name before a citation's form ("Summarise Tyre et al. (2020)", "Summarize French, Q. (2019)",
-   "Summarise Halba and Tyre (2019)", "... 2020 found", "... 2020's findings"), before "&" ("Summarise France &
-   Jordan 2020"), after a title's full stop ("Dr. Show Haddad 2020"), and before a place's word that is a
-   given or a family name too (`privacy._PLACES_NAMES_TOO`: "Show Jordan and Tyre 2023", "Compare Georgia and
-   Chad 2020" withhold the first name). These words are never kept as no name
+   in that document's texts). A name before a bare year after "did", "does", "By", "according to" or "per" is
+   a citation's, in the question as in a record's text (`C9`: "What did Quenby 2019 say?"; an event's or a
+   topic's word stays, as before a year elsewhere: "How did Covid 2020 change enrolment?", and so do an exam's,
+   a tool's or a holiday's word: "By Brevet 2019, how many passed?", "What did Easter 2023 attendance look
+   like?"). A question that is only a plain request about places (`privacy.REQUEST`) keeps every town: a request's verb at the very start of the text (`REQUEST_VERBS`: "Show", "Compare",
+   "Summarise", "Describe", "Map", "List", "Rank", ...; never "See", a citation's signal), "What about", "Any
+   data on", "How did ... compare?", "Dropout in" or nothing; two to four towns joined by "," or "and" (never
+   "&"): a main town, `MAIN_PLACE_WORDS`, "Chtoura", "Chtaura", "Anjar", "Majdal Anjar", or a place's name of
+   several words that a place's word marks ("Western Bekaa", "Bint Jbeil"; never one made only of words a name
+   has, "Saad Nayel", nor one with a place's word that is a name too, "West Bekaa"), none a KM author's
+   surname; a bare year; then nothing, "?", "." or "dropout", "enrolment", "attendance (rates)", "data" or
+   "schools". Its verb is kept in lower case ("compare Chtoura and Zahle 2022"), and such a line keeps its
+   towns in every later reading too (a record's rule, the final check of the message, "Question: compare
+   Chtoura and Zahle 2022", a list of earlier questions, a download's About sheet: `privacy._requests`). Any
+   other text is read as any text, the verb with the town after it as one name: a word before the verb ("Thanks.
+   Show Beirut and Tyre 2023", a first name "Zayna Q. Show ...", an initial "Q. Rank ...", a title "Dr. Show
+   ...", "Amb. Show ..."), a citation's tail after the year ("Summarise Halba and Tyre 2019: 4-5", "... 2019 who
+   found ...", "... 2019; Zahle 2020", "... 2019 findings", "... et al.", "(p. 4)"), "&", a place that is not a
+   town of the list ("Show Gaza and Tyre 2023") or a place's word that is a name too ("Show Jordan and Tyre
+   2023", "Show Tyre and Costa 2023" withhold "Show Jordan" or "Costa"). These words are never kept as no name
    elsewhere: they are family names too ("Rank et al. (2019)", "List, Q. (2019)", "See & Quenby 2021" go).
    The typed text is searched (never an address in it, written out or not, by the same rule), never kept or
    sent. The questions sent (and earlier questions of the conversation) are checked again for a surname in

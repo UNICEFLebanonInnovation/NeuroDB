@@ -593,7 +593,8 @@ def test_the_written_specs_addresses_are_never_downloaded(client_viewer):
 @pytest.mark.django_db
 def test_a_requests_word_cited_as_a_name_is_never_written_on_the_about_sheet():
     """A request's word that is a family name too ("Rank", "List", "See") in a citation's shape: the question
-    and the search words are not written; a typed request before places is written as it was kept."""
+    and the search words are not written; a typed request before places (the main towns, a bare year) is written
+    as it was kept, and so is an exam's word after "By"; a name in a request's shape never is."""
     from neurodb.km import privacy
 
     for question in (
@@ -604,6 +605,23 @@ def test_a_requests_word_cited_as_a_name_is_never_written_on_the_about_sheet():
     ):
         assert not exports.search_words_safe(question, privacy.NOBODY), question
         assert exports.question_words(question, privacy.NOBODY) == str(exports.words.QUESTION_NOT_WRITTEN)
-    for typed in ("Show Beirut and Tyre 2023", "Compare Akkar and Tripoli 2023"):
+    for typed in (
+        "Show Beirut and Tyre 2023",
+        "Compare Akkar and Tripoli 2023",
+        "Compare Chtoura and Zahle 2022",
+        "What about Majdal Anjar and Baalbek 2023?",
+        "By Brevet 2019, how many passed?",
+    ):
         kept = privacy.clean_question(typed)
+        assert kept.casefold() == typed.casefold(), typed
         assert exports.question_words(kept, privacy.NOBODY) == kept, typed
+    # a name in a request's shape, or before a request's verb: never written
+    for typed in (
+        "Show Tyre and Costa 2023",
+        "Zayna Q. Show Tyre and Halba 2020",
+        "Amb. Show Haddad 2023",
+        "What did Quenby 2019 say?",
+    ):
+        kept = privacy.clean_question(typed)
+        assert privacy.NAME_WITHHELD in kept, typed
+        assert exports.question_words(typed, privacy.NOBODY) == str(exports.words.QUESTION_NOT_WRITTEN), typed

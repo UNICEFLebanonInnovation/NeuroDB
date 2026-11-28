@@ -132,7 +132,9 @@ address.
   score explanation, and never a password or a key.
 - **Ask the KM Database** sends your question (cleaned as above, an e-mail address written out with "at"
   and "dot" in words, dashes or brackets, or in capitals, taken out whole, and without the KM Database's
-  authors),
+  authors or any name written as a citation's: "What did Quenby 2019 say?", "Show Tyre and Costa 2023" and
+  "Zayna Q. Show Tyre and Halba 2020" lose the name, while a question that only asks about towns, "Compare
+  Chtoura and Zahle 2022", keeps them, and so does "By Brevet 2019, how many passed?"),
   the earlier questions and answers of the conversation (each answer as it was shown: table rows that were
   taken out are not sent), the date you asked, what the search understood
   of places and years (and of a follow-up), and the KM Database's findings that match it, with their
