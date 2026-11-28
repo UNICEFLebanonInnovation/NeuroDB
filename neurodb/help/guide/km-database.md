@@ -234,8 +234,10 @@ download the findings it read.
   spelling is no family name's, such as "Amchit" or "Bikfaya", or a place's name of several words such as
   "Western Bekaa"; "Saida", "Qana" or "Houla" are family names too and are read as names there), joined by
   commas or "and"; a bare year; and nothing more than "?", "." or a word such as "dropout", "enrolment",
-  "attendance rates", "pass rates" or "data" ("Compare
-  Chtoura and Zahle 2022" is kept as "compare Chtoura and Zahle 2022"). Anything else is read as any text,
+  "attendance rates", "pass rates" or "data", or, after the verb, a subject in lower case such as "out of
+  school" or "by gender" (never a citation's words: "who found", "findings", "as reported", "paper"). "Compare
+  Chtoura and Zahle 2022" is kept as "compare Chtoura and Zahle 2022", "Compare Beirut and Bourj Hammoud 2023
+  out of school" as "compare Beirut and Bourj Hammoud 2023 out of school". Anything else is read as any text,
   and the verb goes with the town after it: a word before the verb ("Thanks. Show Tyre and Halba 2023", a
   first name, an initial or a title), a citation's form after the year ("Summarise Halba and Tyre 2019: 4-5",
   "... 2019 who found", "... 2019; Zahle 2020", "... 2019 findings"), "&", or a place that is also a person's

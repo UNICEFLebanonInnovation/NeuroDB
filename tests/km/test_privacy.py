@@ -1667,6 +1667,60 @@ def test_k2_is_that_shape_only():
     assert privacy.for_ai("Compare Chtoura and Zahle 2022") == f"{W} and Zahle 2022"
 
 
+# (after the written spec) the same plain request with a subject's words after the year ("out of school", "child
+# labour", "by gender", "projects"), as people ask the KM Database: every town stays (the verb in lower case), as
+# at 85a35e4, so that the question kept, the one sent to the AI and a follow-up's places all hold them
+REQUESTS_WITH_A_SUBJECT = [
+    "Compare Beirut and Bourj Hammoud 2023 out of school",
+    "Compare Baalbek, Hermel and Arsal 2024 child labour",
+    "Compare Sidon and Tyre 2025 out of school",
+    "Compare Bekaa and Akkar 2024 out of school children",
+    "Show Beirut and Tyre 2023 by gender",
+    "List Beirut and Tyre 2023 projects",
+    "Compare Tyre and Nabatieh 2025 out of school",
+    "Show Halba and Zahle 2022 child labour",
+    "Compare Beirut and Tripoli 2024 learning outcomes",
+    "Rank Akkar, Minieh and Halba 2024 out of school rates?",
+]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("text", REQUESTS_WITH_A_SUBJECT)
+def test_a_plain_request_about_places_with_a_subject_after_the_year_keeps_every_town(text):
+    people = privacy.People(surnames=frozenset({"vantrell", "naameh"}))
+    sent = text[0].lower() + text[1:]
+    for who in (privacy.NOBODY, people):
+        for cleaned in (privacy.clean_question(text, who), privacy.typed_for_ai(text, who)):
+            assert cleaned == sent, cleaned
+            assert privacy.for_ai(cleaned, who) == cleaned
+            assert privacy.leftover(f"Question: {cleaned}", who) == []
+            assert privacy.typed_for_ai(cleaned, who) == cleaned
+
+
+@pytest.mark.django_db
+def test_a_request_with_a_subject_after_the_year_is_still_read_with_a_name_or_a_citations_words():
+    """Only towns, and only a subject's words after the year: a name among the places, a title before the
+    verb, a citation's word after the year ("who found", "findings", "as reported", "paper") or one of the KM
+    Database's surnames still has the rule read the text as it reads any other."""
+    for text in (
+        "Compare Jordan and Tyre 2023 out of school",
+        "Show Quenby and Tyre 2023 by gender",
+        "Compare North and Tyre 2023 out of school",
+        "Dr. Compare Beirut and Tyre 2023 out of school",
+        "Summarise Tyre and Halba 2019 who found high dropout",
+        "List Tyre and Halba 2019 findings on dropout",
+        "Analyse Tripoli and Tyre 2021 paper on dropout",
+        "Show Tyre and Halba 2019 as reported by schools",
+        "Compare Tyre and Halba 2019 et al",
+    ):
+        assert W in privacy.clean_question(text), text
+        assert W in privacy.typed_for_ai(text), text
+    saida = privacy.People(surnames=frozenset({"saida"}))
+    for text in ("Compare Tyre and Saida 2025 out of school", "Show Saida and Tyre 2025 out of school"):
+        assert "saida" not in privacy.clean_question(text, saida).casefold(), text
+        assert "saida" not in privacy.typed_for_ai(text, saida).casefold(), text
+
+
 # K3: "By", "According to", "Per", "Did", "Does" or "What did", then an exam's, a tool's or a holiday's word and
 # a year: that word stays (a holiday only in this shape; a name there still goes)
 SPEC_K3 = [

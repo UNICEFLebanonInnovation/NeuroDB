@@ -1484,6 +1484,22 @@ REQUEST = re.compile(
     r"|[ \t]+compare[ \t]*\?)[ \t]*"
 )
 REQUEST_LINE = re.compile(rf"^(?:{REQUEST.pattern})$", re.MULTILINE)
+# the same request with a subject's words after the year, as people ask it ("Compare Beirut and Bourj
+# Hammoud 2023 out of school", "Show Beirut and Tyre 2023 by gender", "List Beirut and Tyre 2023 projects"): a
+# request's verb at the start of the text, the towns, a bare year, then words in lower case only, none of them
+# a citation's ("who found", "findings", "as reported", "paper", "et al", "p. 4"); its verb is read apart only
+# where every item is a town and the rule then keeps the text as it is (:func:`typed_for_ai`)
+_CITING_TAIL = (
+    "who|which|that|found|finds|find|say|says|said|argue|argued|argues|report|reports|reported|note|notes|noted"
+    "|show|shows|showed|conclude|concluded|cite|cites|cited|citing|as|et|al|p|pp|paper|papers|study|studies"
+    "|article|articles|review|reviews|model|models|framework|frameworks|finding|findings|survey|surveys|work"
+    "|works|book|chapter|edition|vol|volume|ed|eds"
+)
+REQUEST_HEAD = re.compile(
+    rf"[ \t]*(?P<verb>(?i:{'|'.join(sorted(REQUEST_VERBS))}))[ \t]+"
+    rf"(?P<towns>{_LINE_NAME}(?:(?:[ \t]*,[ \t]*(?:and[ \t]+)?|[ \t]+and[ \t]+){_LINE_NAME}){{1,3}})"
+    rf"[ \t]+(?:19|20)\d\d(?:[ \t]+(?!(?:{_CITING_TAIL})(?![\w\-]))[a-z][a-z\-]*)+[ \t]*[?.]?[ \t]*"
+)
 
 
 def _a_request_town(name: str, surnames: frozenset[str] = frozenset()) -> bool:
@@ -1561,14 +1577,17 @@ def typed_for_ai(text: str, people: People = NOBODY) -> str:
     one bare word gives (``people.ordinary_alone``) is withheld only when it is written as a name ("Doe's",
     "J. Doe", "by Doe", "Doe 2020", "Doe et al."): "Inclusion of children?" keeps its first word. A plain
     request about places that is the whole text (:data:`REQUEST`: "Show Beirut and Tyre 2023", "Compare
-    Chtoura and Zahle 2022") keeps its towns, its verb in lower case ("show Beirut and Tyre 2023"), so that
-    every later check (a record's rule, the final check, a download's About sheet) reads it the same way; any
-    other text, a request's verb included, is read as the rule reads it ("Show Jordan and Tyre 2023", "Thanks.
-    Show Beirut and Tyre 2023", "Summarise Halba and Tyre 2019: 4-5" withhold the verb with the name after
-    it)."""
+    Chtoura and Zahle 2022"; :data:`REQUEST_HEAD` with a subject's words after the year: "Compare Beirut and
+    Bourj Hammoud 2023 out of school") keeps its towns, its verb in lower case ("show Beirut and Tyre 2023"),
+    so that every later check (a record's rule, the final check, a download's About sheet) reads it the same
+    way; any other text, a request's verb included, is read as the rule reads it ("Show Jordan and Tyre 2023",
+    "Thanks. Show Beirut and Tyre 2023", "Summarise Halba and Tyre 2019: 4-5" withhold the verb with the name
+    after it)."""
     if not text:
         return text
     request = REQUEST.fullmatch(text)
+    if not _a_request(request, people.surnames):
+        request = REQUEST_HEAD.fullmatch(text)  # "Compare Beirut and Bourj Hammoud 2023 out of school"
     verb = request.group("verb") if _a_request(request, people.surnames) else None
     if verb and not verb.islower():
         lowered = f"{text[: request.start('verb')]}{verb.lower()}{text[request.end('verb') :]}"

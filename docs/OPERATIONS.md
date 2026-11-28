@@ -1841,8 +1841,11 @@ asked). In order:
    ("Western Bekaa", "Bint Jbeil"; never one made only of words a name has, "Saad Nayel", nor one with a
    place's word that is a name too, "West Bekaa"), none a KM author's surname; a bare year; then nothing,
    "?", "." or "dropout", "enrolment", "attendance", "pass", "repetition" (with "rate" or "rates" too),
-   "data" or "schools". Its verb is kept in lower case ("compare Chtoura and Zahle 2022"), and such a line keeps its
-   towns in every later reading too (a record's rule, the final check of the message, "Question: compare
+   "data" or "schools", or, after a request's verb, any words in lower case that are no citation's ("Compare
+   Beirut and Bourj Hammoud 2023 out of school", "Show Beirut and Tyre 2023 by gender"; `privacy.REQUEST_HEAD`:
+   never "who found", "findings", "as reported", "paper", "et al", "p. 4"). Its verb is kept in lower case
+   ("compare Chtoura and Zahle 2022"), and such a line keeps its towns in every later reading too (a record's
+   rule, the final check of the message, "Question: compare
    Chtoura and Zahle 2022", a list of earlier questions, a download's About sheet: `privacy._requests`). Any
    other text is read as any text, the verb with the town after it as one name: a word before the verb ("Thanks.
    Show Beirut and Tyre 2023", a first name "Zayna Q. Show ...", an initial "Q. Rank ...", a title "Dr. Show

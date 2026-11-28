@@ -20,6 +20,7 @@ from tests.km.test_ask import (  # noqa: F401 (fixtures)
     _people,
     _picked,
     _rain,
+    _sent,
     _version,
     ai,
     answer,
@@ -101,6 +102,40 @@ def test_a_follow_up_after_no_match_keeps_its_subject_places_and_years(client_vi
     # language never searched
     picked = _picked("translate it into French please", earlier=turns[:1])
     assert picked.follow_up and "french" not in searched(picked) and picked.filters.year == ["2024"]
+
+
+TWO_TOWNS = (
+    (
+        "2023",
+        [
+            "In Bourj Hammoud, 20% of children were out of school.",
+            "In Beirut, 12% of children were out of school.",
+            "In Beirut, depression affected 15% of adolescents.",
+            "In Akkar, depression affected 9% of adolescents.",
+        ],
+    ),
+)
+
+
+def test_a_request_about_two_towns_and_a_subject_keeps_both(client_viewer, viewer, ai, today):  # noqa: F811
+    """'Compare Beirut and Bourj Hammoud 2023 out of school' is a plain request about places: the question kept
+    and sent to the AI holds both towns (its verb in lower case), so 'and depression?' still reads Beirut's
+    finding first and its places are both towns."""
+    load(*TWO_TOWNS)
+    conversation = uuid.uuid4()
+    cited = ids_of("In Beirut, 12% of children were out of school.")
+    fake = ai([answer(f"Fake [{cited[0]}].")])
+    done(
+        post(client_viewer, "Compare Beirut and Bourj Hammoud 2023 out of school", conversation=conversation)
+    )
+    row = KMQuestion.objects.order_by("-created_at").first()
+    assert row.status == "answered"
+    assert row.question == "compare Beirut and Bourj Hammoud 2023 out of school"
+    assert "Question: compare Beirut and Bourj Hammoud 2023 out of school" in _sent(fake)
+    turns = ask.history(viewer, conversation, _version())
+    picked = _picked("and depression?", earlier=turns)
+    assert picked.follow_up and "Beirut" in picked.places and "Bourj Hammoud" in picked.places
+    assert _ids(picked)[0] == ids_of("In Beirut, depression affected 15% of adolescents.")[0]
 
 
 def test_a_switch_after_no_match_searches_the_new_subject_in_its_place(ai, today):  # noqa: F811
