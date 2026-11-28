@@ -102,8 +102,10 @@ address.
   zahle.thanks", "What was reported at halba.who is responsible?", "The AP was closed at Akkar.No evidence
   received"). A place written short ("at mt.lebanon", "at st.elias"), a sentence after a place and ". " ("at
   schools. eg water", "at schools. eg, latrines", "at Akkar. NGO staff", "the enrolment at Halba. Net or
-  gross?", "What was the GER at Halba. Net?", "Class 4B at Tyre. Info sessions"), a field's code ("Visit2 at
-  Akkar. NGO staff") or a time before "at" ("9.30am at halba.we met") is no address and stays; after ". ",
+  gross?", "What was the GER at Halba. Net?") or a time before "at" ("9.30am at halba.we met") is no address
+  and stays; a code holding a digit before "at", a place and an ending is read as a name ("Visit2 at Akkar.
+  NGO staff", "Class 4B at Tyre. Info sessions" lose the code and the place: initials or a birth date and
+  digits look the same, "t3", "may1990"); after ". ",
   ".net", ".info", ".fr" and the like end an address when nothing of the sentence follows them ("x at example.
   net before June", "x at hotmail. fr", "x at example. net Monday", "x at example. net regarding the data", "x
   at example. net is the focal point") or after "contact", "email" or "write to"; a time of day or a place, a

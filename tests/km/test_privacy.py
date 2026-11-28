@@ -1040,13 +1040,13 @@ def test_a_town_written_as_a_source_is_withheld_even_with_no_author_known():
 
 
 def test_a_km_download_loses_a_codes_web_address_as_a_link():
-    """A code before "at" names no one, but its web address goes as a link in a download too (no link rule
-    reads it after), as the AI reads it; before a domain whose words no sentence writes it is an address's
-    name, as the pushed rules read it ("F09 at Example.Org"); letters in capitals then digits before a sentence
-    missing its space are an address's name, as initials and a digit write one ("KZ3 at school.it")."""
+    """A code before "at" and a domain with an ending is a name's word as any other (the written spec's E1:
+    initials or a birth date and digits look like a grade's or a field's code), in a download too ("F09 at
+    Example.Org", "CE1 at Tyre.Net"); letters in capitals then digits before a sentence missing its space are
+    an address's name, as initials and a digit write one ("KZ3 at school.it")."""
     for text, sent in {
         "F09 at Example.Org": "[email withheld]",
-        "CE1 at Tyre.Net 2023": "CE1 at [link withheld] 2023",
+        "CE1 at Tyre.Net 2023": "[email withheld] 2023",
     }.items():
         assert privacy.for_download(text) == sent, text
         assert privacy.for_ai(text) == sent, text
@@ -1527,6 +1527,19 @@ SPEC_K1 = {
     "See Tyre and Halba 2019 et al.": "see tyre",
     "Compare Tyre and Akkar 2020 (p. 4)": "compare tyre",
     "Compare Zahle and Tripoli 2019 who found high dropout": "compare zahle",
+    # (follow-up 1) the same shapes with new values: towns joined by a comma, a request's lead-in, a citation's
+    # names listed with a comma, a Vancouver surname of two words, other titles and a thin no-break space
+    "Thanks. Plot Lina, Nabatieh 2017": "lina",
+    "Please contrast Jounieh, Zorgwell 2025 please": "zorgwell",
+    "count Hill, Chtaura 2019 findings": "hill",
+    "Explain Hill, Quenvell (2021), p. 4": "hill quenvell",
+    "Describe Morvane, Tripoli (2020) argue that fees rose.": "morvane",
+    "Compare Wadi, Beirut (2025).": "wadi",
+    "Tavistrom AB, Bou Nassar D.": "tavistrom nassar",
+    "Green AB, Hill QK, Bint Jbeil RJ.": "green hill",
+    "Georgia AB, Quenvell QK, Abi Saab RJ.": "georgia quenvell saab",
+    "Amb.\u202fPlot Morvane 2023": "plot morvane",
+    "Hon.\u202fExplain Khalil 2017": "explain khalil",
 }
 # K1 on the "+people" paths: the KM Database's surnames (town spellings among them) in the same shapes
 SPEC_K1_PEOPLE = {
@@ -1596,6 +1609,16 @@ SPEC_K2 = [
     "Dropout in Chtaura, Jbeil and Byblos 2024",
     "Plot Jounieh, Hermel 2020.",
     "What about Majdal Anjar and Tyre 2023?",
+    # (follow-up 1) any town of the place lists that is no family name's, more request verbs and openers, more
+    # measures after the year
+    "Compare Majdal Anjar and Amchit 2024",
+    "Show Bikfaya and Hermel 2021.",
+    "Rank Qobayat and Anjar 2019?",
+    "How did Tyre, Tebnine and Aley 2020 compare?",
+    "Visualise Chtoura and Tripoli 2022 pass rates",
+    "Display Zahle and Baalbek 2023 attendance rate",
+    "Data on Jbail and Batroun 2021 repetition rates",
+    "Enrolment in Akkar and Anjar 2020",
 ]
 
 
@@ -1633,6 +1656,10 @@ def test_k2_is_that_shape_only():
         "Visits to Chtoura and Tyre 2023",
         "Compare Chtoura & Zahle 2022",
         "Chtoura and Zahle (2022)",
+        # (follow-up 1) a town spelt as a family name ("Houla", "Qana"; people.TOWN_WORDS) or a direction's word
+        "Show Houla and Tyre 2023",
+        "Compare Qana and Zahle 2023",
+        "Summarise North and South 2020",
     ):
         assert W in privacy.clean_question(text), text
         assert W in privacy.typed_for_ai(text), text
@@ -1653,6 +1680,11 @@ SPEC_K3 = [
     "What did Easter 2023 attendance look like?",
     "By Christmas 2020, dropout rose.",
     "Per Easter 2024, how many passed?",
+    # (follow-up 1) the lead in lower case
+    "by Brevet 2023, dropout rose.",
+    "per Kobo 2022, dropout rose.",
+    "by Christmas 2023, dropout rose.",
+    "per Fieldwork 2019",
 ]
 
 
@@ -1672,6 +1704,8 @@ def test_k3_a_holiday_is_kept_in_that_shape_only():
         "Christmas et al. (2019) found high dropout.": f"{W} et al. (2019) found high dropout.",
         "Source: Easter 2023.": f"Source: {W} 2023.",
         "By Quenby 2019, how many passed?": f"By {W} 2019, how many passed?",
+        # (follow-up 1) "by" after a word that is no opening one: a citation's author
+        "A paper by Brevet 2020 shows high dropout.": f"A paper by {W} 2020 shows high dropout.",
     }.items():
         assert privacy.for_ai(text) == sent, text
         assert privacy.clean_question(text) == sent, text

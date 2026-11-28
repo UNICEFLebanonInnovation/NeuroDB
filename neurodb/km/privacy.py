@@ -231,6 +231,9 @@ C6 = re.compile(
     rf"(?:(?<![\w'’\-])(?:in|for|by|from|per|than|with|and|pooling|{_CITING}|(?:19|20)\d\d[a-z]?\)?[ \t]*;)"
     rf"|{_OPENS}In)\s+(?P<a>{NAME})(?=,?\s+{YEAR}\b)"
 )
+# C5c: a request's names joined by a comma before a year ("Plot Lina, Nabatieh 2017", "Compare Tyre, Quenby
+# 2020"), each judged on its own as C5's are (:func:`_pair`)
+C5C = re.compile(rf"{_BEFORE}(?P<a>{NAME})[ \t]*,[ \t]*(?P<b>{NAME})(?=\s+{YEAR}\b)")
 # C7: a name (or two) before a bare year after a source's words: "Based on Doe 2019", "Source: Doe 2021",
 # "References: Doe 2019", "Adapted from Doe and Roe 2019", "Data: Doe 2020" ("According to" and "Per": C9)
 C7 = re.compile(
@@ -546,14 +549,20 @@ _OXFORD_BEFORE = re.compile(r",[ \t]*(?:and|&)[ \t]+$")
 LISTED_MAX = 8  # names read before a list's last two
 
 
-def _listed_before(match: re.Match) -> tuple[tuple[int, int], ...]:
+def _listed_before(match: re.Match, comma: bool = False) -> tuple[tuple[int, int], ...]:
     """The spans of the names listed with commas right before a C3 or C5 match of two names ("Vantrell, " in
     "Vantrell, Zorgwell and Quenby (2019)"), or of one after a comma and "and" ("Quenby, and Marlowfake
     (2019)"), nearest first; a name that is neither kept nor a place without its first words that are no
     person's ("However Vantrell" → "Vantrell"). A place written after a word that writes a place opens the
-    sentence, and the list stops there ("In Saida, Kousba and Naameh (2019) found")."""
+    sentence, and the list stops there ("In Saida, Kousba and Naameh (2019) found"). ``comma``: a C3 match's
+    one name after a comma too, its year in brackets a citation's ("Hill, Quenvell (2021)", "Describe
+    Morvane, Tripoli (2020) argue")."""
     text, start = match.string, match.start("a")
-    if not match.groupdict().get("b") and not _OXFORD_BEFORE.search(text, max(0, start - 12), start):
+    if (
+        not comma
+        and not match.groupdict().get("b")
+        and not _OXFORD_BEFORE.search(text, max(0, start - 12), start)
+    ):
         return ()
     spans: list[tuple[int, int]] = []
     while len(spans) < LISTED_MAX:
@@ -595,6 +604,19 @@ NOT_SOURCES = frozenset(
 # like?"): kept only after C9's words, where no citation's name is written so; a family name too elsewhere
 # ("Christmas et al. (2019)", "Source: Easter 2023")
 HOLIDAYS = frozenset({"christmas", "easter"})
+# the words C6 keeps after its word that opens it: a sentence's "In" (:data:`NOT_SOURCES`: "In Brevet 2023"),
+# and "by" or "per" in lower case that opens the text or a sentence, as C9 keeps them after "By" and "Per" (a
+# holiday too: "by Christmas 2023", "per Kobo 2022"; "A paper by Brevet 2020" is a citation's)
+_C6_WORDS = {"In": NOT_SOURCES, "by": NOT_SOURCES | HOLIDAYS, "per": NOT_SOURCES | HOLIDAYS}
+
+
+def _c6_words(match: re.Match) -> frozenset[str]:
+    """The words a C6 match keeps (:data:`_C6_WORDS`): after "by" and "per" only where they open the text or a
+    sentence."""
+    lead = match.group(0).split()[0]
+    if lead in ("by", "per") and not _OPENS_AT.match(match.string, match.start()):
+        return frozenset()
+    return _C6_WORDS.get(lead, frozenset())
 
 
 def _only(name: str, words: frozenset[str]) -> bool:
@@ -691,7 +713,9 @@ def _title(name: str) -> bool:
 _DETERMINER_BEFORE = re.compile(r"(?<![\w'’\-])(?i:the|a|an|this|its|their|our)\s+$")
 
 
-def _pair(match: re.Match, surnames: frozenset[str] = frozenset()) -> list[tuple[int, int]]:
+def _pair(
+    match: re.Match, surnames: frozenset[str] = frozenset(), listed: bool = True
+) -> list[tuple[int, int]]:
     """C5's two names, each judged on its own (:func:`_names`: "from Tyre & Doering 2020" withholds
     "Doering", "UNICEF & Vantrell 2020" keeps "UNICEF", "from Akar & Doering 2020" withholds both, "in Tyre,
     Qana and Houla 2024" none), and the names listed with commas before them ("Vantrell, Zorgwell and Quenby
@@ -704,10 +728,11 @@ def _pair(match: re.Match, surnames: frozenset[str] = frozenset()) -> list[tuple
     source's verb after the year ("Akar and Tyre 2020 found"), never one of the KM Database's surnames. A
     word that is a first name too ("Said") is a name's. With "and", a determiner before it and no citation's
     form, a title stays whole ("the Fakeword and Child Development Survey 2023"; "Quenby and Child Development
-    Survey 2023" withholds "Quenby")."""
+    Survey 2023" withholds "Quenby"). ``listed`` false: no names listed before it are read (C5c's pair, joined
+    by a comma, is the list)."""
     match = _trimmed_pair(match)
     text = match.string
-    listed = _listed_before(match)
+    before = _listed_before(match) if listed else ()
     names = (match.group("a"), match.group("b"))
     joined = "&" in text[match.end("a") : match.start("b")]
     cited = (
@@ -723,7 +748,7 @@ def _pair(match: re.Match, surnames: frozenset[str] = frozenset()) -> list[tuple
         and all(surnames.isdisjoint(_place_words(name)) for name in names)
     ):
         return []
-    return _names(match, None if joined else _AS_PLACE, surnames, listed_before=listed)
+    return _names(match, None if joined else _AS_PLACE, surnames, listed_before=before)
 
 
 def _everywhere(name: str) -> bool:
@@ -819,7 +844,7 @@ def _citations(
                 for s in _names(
                     m,
                     source=bool(_CITED_AFTER.match(text, m.end())),
-                    listed_before=_listed_before(m),
+                    listed_before=_listed_before(m, comma=True),
                 )
             ],
         )
@@ -837,15 +862,11 @@ def _citations(
     if " and " in text or "&" in text:
         text = hold(text, [s for m in C5.finditer(text) for s in _pair(m, surnames)])
         text = hold(text, _year_lists(text, surnames))
+    if "," in text:
+        text = hold(text, [s for m in C5C.finditer(text) for s in _pair(m, surnames, listed=False)])
     text = hold(
         text,
-        [
-            s
-            for m in C6.finditer(text)
-            for s in _names(
-                m, _AS_PLACE, surnames, words=NOT_SOURCES if m.group(0).startswith("In") else frozenset()
-            )
-        ],
+        [s for m in C6.finditer(text) for s in _names(m, _AS_PLACE, surnames, words=_c6_words(m))],
     )
     text = hold(text, [s for m in C7.finditer(text) for s in _names(m, words=NOT_SOURCES)])
     if "'s" in text or "’s" in text:
@@ -964,7 +985,8 @@ def _hyphen_head(word: str, surnames: frozenset[str]) -> int:
 # its line, are a name, whatever they also are (a request's verb, a town), unless they are kept (a place, an
 # organisation, a common word: "in Eng. and Fr. The report", "Gen. Assembly Resolution")
 _MORE_TITLES = "Amb|Sen|Pr|Drs|Rev|Revd|Fr|Sr|Hon|Capt|Col|Gen|Lt|Sgt|Maj"
-_TITLE_NAME = re.compile(rf"(?<![\w'’\-.])(?:{_MORE_TITLES})\.[ \t\xa0]*(?P<a>{NAME})")
+_SPACE = "[ \t\xa0\u2007\u2009\u202f]"  # a space, a tab, a no-break space or a thin one ("Dr.\u202fShow")
+_TITLE_NAME = re.compile(rf"(?<![\w'’\-.])(?:{_MORE_TITLES})\.{_SPACE}*(?P<a>{NAME})")
 _TITLE_WORDS = frozenset(_MORE_TITLES.casefold().split("|"))
 
 
@@ -1005,12 +1027,14 @@ _LONE_CAPITALS = re.compile(rf"[ \t]{_INITIALS_END}", re.MULTILINE)
 # C."): every author's surname, with or without a year, whatever the KM Database's authors, and with an
 # author already withheld ("Zayna AB, [name withheld] C."); never a word that is no name ("Grade A, Grade
 # B.")
-_VANCOUVER = rf"(?:{WORD}|{re.escape(NAME_WITHHELD)})[ \t]+[A-Z]{{1,2}}(?![\w'’\-])"
+_SURNAME = rf"(?:(?:{'|'.join(PARTICLES)})[ \t]+)?{WORD}(?:[ \t]+(?:(?:{'|'.join(PARTICLES)})[ \t]+)?{WORD})?"
+_VANCOUVER = rf"(?:{_SURNAME}|{re.escape(NAME_WITHHELD)})[ \t]+[A-Z]{{1,2}}(?![\w'’\-])"
 S1V = re.compile(
     rf"{_BEFORE}{_VANCOUVER}(?:[ \t]*[,;][ \t]*{_VANCOUVER})+(?=\.|[ \t]*[;:]|,?[ \t]+et[ \t]+al\b|[ \t]*$)",
     re.MULTILINE,
 )
-S1V_ITEM = re.compile(rf"(?P<a>{WORD})[ \t]+[A-Z]{{1,2}}(?![\w'’\-])")
+# an author of it, a surname of two words too ("Abou Khalil QK", "Van Orrinvale M", "De Wexborne D")
+S1V_ITEM = re.compile(rf"(?P<a>{_SURNAME})[ \t]+[A-Z]{{1,2}}(?![\w'’\-])")
 # S2: a name and a year before a colon, a ";" or a place in parentheses, the year not a date's ("Fake
 # fieldwork May-June 2020;"): "Doe 2020: 20-60y; Roe 2022: ...", "Roe 2021 (Lebanon) fits"
 S2 = re.compile(rf"{_BEFORE}(?P<a>{NAME})[ \t]+{YEAR}(?:[ \t]*[:;]|[ \t]+\((?P<place>[^()]{{2,40}})\))")
@@ -1074,7 +1098,7 @@ _INITIALS_BEFORE = re.compile(
 # (2019)"'s name): it goes with the name, as it goes with a name after it
 _TITLES_BEFORE = "|".join(sorted(watch_people.TITLE_WORDS | _TITLE_WORDS, key=len, reverse=True))
 _TITLE_BEFORE = re.compile(
-    rf"(?<![\w'’\-.])(?=[A-Z])(?i:{_TITLES_BEFORE})\.?[ \t\xa0]*(?={re.escape(NAME_WITHHELD)})"
+    rf"(?<![\w'’\-.])(?=[A-Z])(?i:{_TITLES_BEFORE})\.?{_SPACE}*(?={re.escape(NAME_WITHHELD)})"
 )
 
 
@@ -1163,9 +1187,10 @@ def _listed(text: str, people: People, found: set[str], surnames: bool) -> list[
     if _LONE_CAPITALS.search(text):
         for listed in S1V.finditer(text):
             for m in S1V_ITEM.finditer(text, listed.start(), listed.end()):
-                if not _not_a_name(m.group("a"), text):
+                name = m.group("a")
+                if not (_not_a_name(name, text) if " " not in name and "\t" not in name else kept(name)):
                     spans.append(m.span("a"))
-                    found.add(m.group("a"))
+                    found.add(name)
     if _HAS_YEAR_STOP.search(text):
         for m in S2.finditer(text):
             last = _WORDS.findall(m.group("a"))[-1]
@@ -1434,36 +1459,49 @@ QUESTION_CHARS = 1000
 # earlier questions), every town of it stays (:func:`_requests`)
 REQUEST_VERBS = frozenset(
     "show compare summarise summarize describe map chart count list rank plot explain analyse analyze "
-    "contrast".split()
+    "contrast visualise visualize graph display tabulate".split()
 )
 # Lebanon's main towns (:data:`neurodb.watch.people.MAIN_PLACE_WORDS`, no person's name) and the towns that a
-# request names with them whose spellings are family names too elsewhere ("Chtoura", "Anjar", "Majdal Anjar")
-REQUEST_TOWNS = watch_people.MAIN_PLACE_WORDS | frozenset({"chtoura", "chtaura", "anjar", "majdal anjar"})
+# request names with them whose spellings are family names too elsewhere ("Chtoura", "Anjar", "Majdal Anjar",
+# "Qobayat"); any other town's one-word spelling of :mod:`neurodb.km.places` counts too, but one that is a
+# family name's (:data:`neurodb.watch.people.TOWN_WORDS`: "Saida", "Naameh", "Qana", "Houla"; see
+# :func:`_a_request_town`)
+REQUEST_TOWNS = watch_people.MAIN_PLACE_WORDS | frozenset(
+    {"chtoura", "chtaura", "anjar", "majdal anjar", "qobayat"}
+)
 _LINE_PARTICLE = rf"(?:(?:{'|'.join(PARTICLES)})[ \t]+)"
 _LINE_NAME = rf"{_LINE_PARTICLE}?{WORD}(?:[ \t]+{_LINE_PARTICLE}?{WORD}){{0,2}}"
 _REQUEST_JOIN = re.compile(r"[ \t]*,[ \t]*(?:and[ \t]+)?|[ \t]+and[ \t]+")
 REQUEST = re.compile(
     r"[ \t]*(?:-[ \t]+)?(?:(?:Question|Q)[ \t]*:[ \t]*)?"
     rf"(?:(?P<verb>(?i:{'|'.join(sorted(REQUEST_VERBS))}))[ \t]+"
-    r"|(?i:what[ \t]+about|any[ \t]+data[ \t]+on|how[ \t]+did|dropout[ \t]+in)[ \t]+)?"
+    r"|(?i:what[ \t]+about|how[ \t]+about|(?:any[ \t]+)?data[ \t]+on|how[ \t]+did"
+    r"|(?:dropout|enrolment|enrollment|attendance|repetition)(?:[ \t]+rates?)?[ \t]+in)[ \t]+)?"
     rf"(?P<towns>{_LINE_NAME}(?:(?:[ \t]*,[ \t]*(?:and[ \t]+)?|[ \t]+and[ \t]+){_LINE_NAME}){{1,3}})"
     r"[ \t]+(?:19|20)\d\d"
-    r"(?:(?:[ \t]+(?i:dropout|enrolment|enrollment|attendance|data|schools)(?:[ \t]+rates)?)?[ \t]*[?.]?"
+    r"(?:(?:[ \t]+(?i:dropout|enrolment|enrollment|attendance|data|schools|pass|repetition)"
+    r"(?:[ \t]+(?i:rates?))?)?[ \t]*[?.]?"
     r"|[ \t]+compare[ \t]*\?)[ \t]*"
 )
 REQUEST_LINE = re.compile(rf"^(?:{REQUEST.pattern})$", re.MULTILINE)
 
 
 def _a_request_town(name: str, surnames: frozenset[str] = frozenset()) -> bool:
-    """Whether ``name`` is a town a plain request about places names (:data:`REQUEST_TOWNS`), or a place's
-    name of several words of :mod:`neurodb.km.places` that one of its words marks a place ("Western Bekaa",
-    "Bint Jbeil", "Baalbek-Hermel"; never one made only of words a name has: "Bar Elias", "Saad Nayel", nor
-    one with a word of places that is a name too: "West Bekaa"), and none of the KM Database's surnames."""
+    """Whether ``name`` is a town a plain request about places names: one of :data:`REQUEST_TOWNS`, a town's
+    one-word spelling of :mod:`neurodb.km.places` (:data:`PLACE_NAMES_ONE`: "Amchit", "Bikfaya", "Tebnine")
+    that is no family name's (:data:`neurodb.watch.people.TOWN_WORDS`: "Saida", "Naameh", "Qana", "Houla"
+    stay names there), or a place's name of several words there that one of its words marks a place
+    ("Western Bekaa", "Bint Jbeil", "Baalbek-Hermel"; never one made only of words a name has: "Bar Elias",
+    "Saad Nayel", nor one with a word of places that is a name too: "West Bekaa"), and none of the KM
+    Database's surnames."""
     found = _place_words(name)
     if not found or not surnames.isdisjoint(found) or not _PLACES_NAMES_TOO.isdisjoint(found):
         return False
     if " ".join(found) in REQUEST_TOWNS:
         return True
+    if len(found) == 1:  # (never a direction's or an area's word: "North", "South" are names too there)
+        word = found[0]
+        return word in PLACE_NAMES_ONE and word not in watch_people.TOWN_WORDS and word not in PLACE_WORDS
     return len(found) > 1 and tuple(found) in PLACE_NAMES and not PLACE_MARKERS.isdisjoint(found)
 
 

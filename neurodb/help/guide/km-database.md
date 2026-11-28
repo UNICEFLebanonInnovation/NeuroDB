@@ -222,12 +222,19 @@ download the findings it read.
   Fieldwork 2023", "Data: Interviews 2023"), but never after "by" or in a pair of authors ("A paper by Brevet
   and Quenby 2020" loses both). A name before a year after "did", "does", "By", "According to" or "Per" goes
   ("What did Quenby 2019 say?"), but an exam, a tool or a holiday stays there ("By Brevet 2019, how many
-  passed?", "According to Kobo 2023", "What did Easter 2023 attendance look like?"). A question that is only
+  passed?", "According to Kobo 2023", "What did Easter 2023 attendance look like?"; "by" or "per" in lower
+  case at the start of the question or of a sentence too: "by Brevet 2023, dropout rose"). Names joined by a
+  comma before a year or a year in brackets go as names joined by "and" do ("Plot Lina, Nabatieh 2017",
+  "Hill, Quenvell (2021)"), and so do surnames of two words in a reference list ("Abou Khalil QK"). A question
+  that is only
   a plain request about places keeps its towns: a request's verb at its start ("Show", "Compare", "Summarise",
-  "Describe", "Map", "List", "Rank"...; never "See"), "What about", "Any data on", "How did ... compare?" or
-  "Dropout in", or nothing; then two to four of Lebanon's main towns (or a place's name of several words such
-  as "Western Bekaa"; "Chtoura", "Anjar" and "Majdal Anjar" too), joined by commas or "and"; a bare year; and
-  nothing more than "?", "." or a word such as "dropout", "enrolment", "attendance rates" or "data" ("Compare
+  "Describe", "Map", "List", "Rank", "Visualise", "Display"...; never "See"), "What about", "Any data on",
+  "How did ... compare?", "Dropout in" or "Enrolment in", or nothing; then two to four towns (Lebanon's main
+  towns, "Chtoura", "Anjar", "Majdal Anjar", "Qobayat", any other town of the KM Database's places whose
+  spelling is no family name's, such as "Amchit" or "Bikfaya", or a place's name of several words such as
+  "Western Bekaa"; "Saida", "Qana" or "Houla" are family names too and are read as names there), joined by
+  commas or "and"; a bare year; and nothing more than "?", "." or a word such as "dropout", "enrolment",
+  "attendance rates", "pass rates" or "data" ("Compare
   Chtoura and Zahle 2022" is kept as "compare Chtoura and Zahle 2022"). Anything else is read as any text,
   and the verb goes with the town after it: a word before the verb ("Thanks. Show Tyre and Halba 2023", a
   first name, an initial or a title), a citation's form after the year ("Summarise Halba and Tyre 2019: 4-5",

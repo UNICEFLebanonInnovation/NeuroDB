@@ -599,8 +599,9 @@ _LOOKALIKE_DOT = re.compile(r"(?<=\w)[·∙⋅۔](?=\w)")
 # cohort's, a floor's, an informal tented settlement's, a school's, a centre's, a public school's, a programme
 # document's, a fiscal, school or academic year's) before "at" ("9.30am at halba.we met", "9am at halba.no
 # delays", "Visit no.2 at akkar.we", "q3 at akkar.it will", "KG2 at school.it was", "room-2 at school.it", "4b
-# at school.it", "v2.0 at https://", "Visit3 at halba.no issues", "ITS12 at Bekaa. NGO staff"): no address's
-# name
+# at school.it", "v2.0 at https://", "Visit3 at halba.no issues"): no address's name in those readings; the
+# written spec's E1 reads a code before a domain and an ending as any word that may name someone ("ITS12 at
+# Bekaa. NGO staff", "t3 at example. org": initials or a birth date and digits look the same)
 _NOT_A_NAME = re.compile(
     r"\d{1,2}(?:[.:h]\d{2})?(?:[ap]\.?m\.?|h|hrs?)|\d{1,2}[.:]\d{2}"  # "9.30am", "9am", "14h30", "10.15"
     r"|\d+(?:st|nd|rd|th|km|kms|kg|cm|mm|ml|usd|lbp|hours|mins|days|yrs|years|x)"  # "2nd", "15km", "3x"
@@ -1030,7 +1031,7 @@ def written_out(match: re.Match, typed: bool = False, links: bool = True, link_r
     (:func:`_page_shape`) keeps its place, the domain goes as a link; E2, after a mailing context
     (:func:`_written_to`) or in a list of addresses (:func:`_list_item_named`) the whole address goes; E4, a
     field note's sentence after a registered place's name stays (:func:`_place_sentence`); E1, after a word
-    that may name someone (no word that names no one, no place's, no code), any domain with an ending goes
+    that may name someone (no word that names no one, no place's; a code too), any domain with an ending goes
     (:func:`_named_end`). A given name, an initial or a title before a capitalised name goes with it
     (:func:`_withheld`). A domain only those rules read (``spec``) is left as it is otherwise, but after a
     word the text names an address (:func:`_names_an_address`); any other match is read as before
@@ -1048,7 +1049,6 @@ def written_out(match: re.Match, typed: bool = False, links: bool = True, link_r
     domain, local, at = match.group("domain"), match.group("local"), match.group("at")
     text, start = match.string, match.start("domain")
     plain_at = bool(_PLAIN_AT.fullmatch(at))
-    code = bool(_NOT_A_NAME.fullmatch(local))
     # the written spec's rules first. A domain with an ending (:func:`_known_end`): E3, a page's word after a
     # verb that goes to a page ("Report to the new portal at zfakemira. org"): its domain goes as a link in
     # every text (whole before what follows an address); E2, a mailing context before the name, up to two
@@ -1058,6 +1058,10 @@ def written_out(match: re.Match, typed: bool = False, links: bool = True, link_r
     tail = match.group("tail")
     full = f"{domain}{tail}"
     known = _known_end(full)
+    # E4, a sentence after a registered place's name ("Teachers trained at Bebnine. Net enrolment rose after
+    # that?"): a mailing context before it makes it E2's only when it writes to its word itself ("Email staff
+    # at Halba. Org chart updated"; "Contact sessions were held at Matn. Info packs were shared." is E4's)
+    sentence = _place_sentence(local, at, full, text, start + len(full))
     if known:
         rest = _GLUED_LABELS.sub("", full[known:], count=1)
         if _page_shape(local, text, match.start()):
@@ -1070,15 +1074,15 @@ def written_out(match: re.Match, typed: bool = False, links: bool = True, link_r
             return f"{local}{at}{LINK_WITHHELD}{rest}"
         # (and every item of a list of addresses after one: "To: monitoring at example. Org, IT at example.
         # Org")
-        if _written_to(text, match.start()) or _list_item_named(text, match.start(), 0, start + known, local):
+        written = _written_to_word(text, match.start()) if sentence else _written_to(text, match.start())
+        if written or _list_item_named(text, match.start(), 0, start + known, local):
             return f"{_withheld(local)}{rest}"
-    # E4, a sentence after a registered place's name: as it is ("Teachers trained at Bebnine. Net enrolment
-    # rose after that?")
-    if _place_sentence(local, at, full, text, start + len(full)):
+    if sentence:  # E4: as it is
         return match.group(0)
-    # E1, a word that may name someone (no word that names no one, no place's, no code): before a domain and
-    # an ending, an address's name whatever comes before or follows it (:func:`_named_end`)
-    if not code and not _typed_keeps(local) and not _PLACE_SHORT.fullmatch(local):
+    # E1, a word that may name someone (no word that names no one, no place's): before a domain and an ending,
+    # an address's name whatever comes before or follows it (:func:`_named_end`); a code too ("t3", "ZM2",
+    # "may1990", "ITS12": initials or a birth date and digits, whatever a grade's or a field's code is like)
+    if not _typed_keeps(local) and not _PLACE_SHORT.fullmatch(local):
         named_end = _named_end(full, text, start, typed, plain_at and local.isalpha() and local.islower())
         if named_end:
             return f"{_withheld(local)}{_GLUED_LABELS.sub('', full[named_end:], count=1)}"
@@ -1362,7 +1366,7 @@ _GLUED_AFTER = re.compile(rf"(?<={re.escape(EMAIL_WITHHELD)})(?:\.(?=[\w-]*[^\W\
 # read the domain up to an earlier label: "x@Mt.Lebanon dot NET", "x (at) moph point gov point GOV", "x at
 # St.Joseph . uk")
 _ENDING_AFTER = re.compile(
-    rf"(?<={re.escape(EMAIL_WITHHELD)})(?:(?:{_DOT}|\s+(?:point|period)\s+|\s\.\s?)(?:{_KNOWN})(?![\w-]))+",
+    rf"(?<={re.escape(EMAIL_WITHHELD)})(?:(?:{_DOT}|\s+(?:point|period)\s+|\s\.\s?|\.\s)(?:{_KNOWN})(?![\w-]))+",
     re.IGNORECASE,
 )
 # after a link withheld, the labels of its domain the link rule left ("[link withheld].it was closed" from
@@ -1520,9 +1524,9 @@ _PAGE_WORDS = frozenset(
 # to the tool at", "Send it to the site at", "Reply to the survey at")
 _TO_PAGE = re.compile(
     r"\b(?i:submit|submits|submitted|submitting|upload|uploads|uploaded|uploading|post|posts|posted|posting"
-    r"|return|returns|returned|returning|report|reports|reporting|log\s+in|logs\s+in|logged\s+in|logging\s+in"
-    r"|sign\s+in|signs\s+in|signed\s+in|signing\s+in|navigate|navigates|navigated|navigating)\b"
-    r"(?:\s+[\w'-]+){0,3}\s+$"
+    r"|return|returns|returned|returning|report|reports|reported|reporting|log\s+in|logs\s+in|logged\s+in"
+    r"|logging\s+in|sign\s+in|signs\s+in|signed\s+in|signing\s+in|navigate|navigates|navigated|navigating)\b"
+    r"(?:\s+[\w'-]+){0,6}\s+$"  # what goes there between them ("the forms for this month", "all the sheets")
 )
 _MAILS_IN_SENTENCE = re.compile(
     r"\b(?i:send|sends|sent|sending|forward|forwards|forwarded|forwarding|write|writes|wrote|writing|written"
@@ -2020,14 +2024,23 @@ SENTENCE_LOCAL = frozenset(
 # a title, a given name): "write to", "email", "mail", "send (it) to", "cc", "copy", "contact", "reply to",
 # "forward (it) to", "reach", "get in touch with", "To:", "Cc:", "Bcc:", "Recipients:", "Contacts:",
 # "Mailboxes:", "the address is", "her email is"
-_WRITES_BEFORE = re.compile(
-    r"(?:\b(?:write|writes|writing|reply|replies|replying)\s+to"
+_MAILING = (
+    r"(?:(?:\b(?:write|writes|writing|reply|replies|replying)\s+to"
     r"|\b(?:send|sends|sending|forward|forwards|forwarding)(?:\s+[\w'-]+){0,3}?\s+to"
     r"|\b(?:e-?mail|e-?mails|e-?mailing|mail|mails|mailing|cc|bcc|copy|contact|contacting|reach)"
     r"|\b(?:get|getting)\s+in\s+touch\s+with"
-    r"|(?:^|[^\w-])(?:to|cc|bcc|recipients?|contacts?|mailbox(?:es)?)\s*:"
     r"|\bthe\s+address\s+is|\b(?:her|his|their)\s+e-?mail(?:\s+address)?\s+is"
-    r")(?![\w-])\s*(?:(?:[^\W\d_][\w'-]*|(?:mr|mrs|ms|mx|dr|prof)\.|[^\W\d_]\.)\s+){0,2}$",
+    r")(?![\w-])\s*:?"  # a colon after it too ("The address is: x at ...", "Email: x at ...")
+    # a header, the name right after its colon too ("To:x at ...", "Recipients:the info at ...")
+    r"|(?:^|[^\w-])(?:to|cc|bcc|recipients?|contacts?|mailbox(?:es)?)\s*:)\s*"
+)
+_WRITES_BEFORE = re.compile(
+    rf"{_MAILING}(?:(?:[^\W\d_][\w'-]*|(?:mr|mrs|ms|mx|dr|prof)\.|[^\W\d_]\.)\s+){{0,2}}$", re.IGNORECASE
+)
+# the same, with only "the", a possessive or a title between the mailing context and the word ("Email staff
+# at", "Write to the staff at", "Contact Ms. Staff at"): what writes to that word itself
+_WRITES_WORD_BEFORE = re.compile(
+    rf"{_MAILING}(?:(?:the|our|your|their|his|her|my|this|that|a|an|(?:mr|mrs|ms|mx|dr|prof)\.?)\s+){{0,2}}$",
     re.IGNORECASE,
 )
 
@@ -2037,6 +2050,12 @@ def _written_to(text: str, start: int) -> bool:
     (:data:`_WRITES_BEFORE`: "Please email Zayna Fakemira at", "Write to the school at", "Contact Ms.
     Fakemira at", "To: monitoring at")."""
     return bool(_WRITES_BEFORE.search(text, max(0, start - 80), start))
+
+
+def _written_to_word(text: str, start: int) -> bool:
+    """Whether a mailing context writes to the word at ``start`` of ``text`` itself, only "the", a possessive
+    or a title between them (:data:`_WRITES_WORD_BEFORE`: "Email staff at", "Write to the staff at")."""
+    return bool(_WRITES_WORD_BEFORE.search(text, max(0, start - 80), start))
 
 
 def _known_end(domain: str) -> int:

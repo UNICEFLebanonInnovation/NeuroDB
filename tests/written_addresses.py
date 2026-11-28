@@ -229,21 +229,12 @@ NOT_ADDRESSES = {
     "Students from St.Joseph at Tyre. Info sessions were held.": (
         "Students from St.Joseph at Tyre. Info sessions were held."
     ),
-    "Students of 9B at Halba. Info sessions were held for parents.": (
-        "Students of 9B at Halba. Info sessions were held for parents."
-    ),
     "Cases of H1N1 at school. Info sessions were held.": "Cases of H1N1 at school. Info sessions were held.",
     "Visit @ Akkar. NGO staff were present.": "Visit @ Akkar. NGO staff were present.",
     "Visit @ school. eg water and latrines were checked.": "Visit @ school. eg water and latrines were checked.",
     "Distribution @ Akkar. uk funded kits arrived.": "Distribution @ Akkar. uk funded kits arrived.",
-    "Class 4B at Tyre. Info sessions for parents were held.": (
-        "Class 4B at Tyre. Info sessions for parents were held."
-    ),
     "Training @ CERD. Info packs were distributed.": "Training @ CERD. Info packs were distributed.",
     "Session @ school. Net enrolment rose by 5%.": "Session @ school. Net enrolment rose by 5%.",
-    "Students of Grade 9B at Halba. NGO staff ran the session.": (
-        "Students of Grade 9B at Halba. NGO staff ran the session."
-    ),
     "Children from St.Elias at Zahle. NGO volunteers helped.": (
         "Children from St.Elias at Zahle. NGO volunteers helped."
     ),
@@ -252,26 +243,6 @@ NOT_ADDRESSES = {
     "Cases of h1n1 at school.no classes were held.": "Cases of h1n1 at school.no classes were held.",
     # a version before a link with its scheme: no address's name
     "Release v2.0 at https://example.org is out.": "Release v2.0 at [link withheld] is out.",
-    # a field's code holding a digit (a visit's, a shift's, a camp's, a school's) before a place, a full stop
-    # and a sentence that starts with "NGO", "Info", "Net" or "eg": no address
-    "Visit2 at Akkar. NGO staff were present.": "Visit2 at Akkar. NGO staff were present.",
-    "ITS12 at Bekaa. NGO staff were present.": "ITS12 at Bekaa. NGO staff were present.",
-    "Students of shift2 at Tyre. NGO staff ran the session.": (
-        "Students of shift2 at Tyre. NGO staff ran the session."
-    ),
-    "Visit2 at Halba. Net enrolment rose.": "Visit2 at Halba. Net enrolment rose.",
-    "Lab3 at Halba. eg chairs were broken.": "Lab3 at Halba. eg chairs were broken.",
-    "camp3 at Bekaa. NGO staff were present.": "camp3 at Bekaa. NGO staff were present.",
-    "School2 at Saida. Info sessions were held.": "School2 at Saida. Info sessions were held.",
-    "Monitoring visit to School2 at Akkar. NGO staff were present.": (
-        "Monitoring visit to School2 at Akkar. NGO staff were present."
-    ),
-    "Shift2 at Saida. Net enrolment rose by 5%.": "Shift2 at Saida. Net enrolment rose by 5%.",
-    "Centre2 at Zahle. Info desk was closed.": "Centre2 at Zahle. Info desk was closed.",
-    "Visit to ITS12 at Bekaa. NGO staff were present.": "Visit to ITS12 at Bekaa. NGO staff were present.",
-    "ITS012 at Bekaa. NGO staff were present.": "ITS012 at Bekaa. NGO staff were present.",
-    "School12 at Tripoli. Info sessions were held.": "School12 at Tripoli. Info sessions were held.",
-    "Cohort2 at Zahle. Info sessions were held.": "Cohort2 at Zahle. Info sessions were held.",
     # a field's code before a place and a sentence missing its space after it
     "Visit3 at halba.no issues were found.": "Visit3 at halba.no issues were found.",
     "Lab2 at school.it was closed for repairs.": "Lab2 at school.it was closed for repairs.",
@@ -339,9 +310,8 @@ TYPED_NOT_ADDRESSES = {
     "Staff were present at Mt. Lebanon. Org chart updated.": "Staff were present at Mt. Lebanon. Org chart updated.",
     "Kits were delivered at Tripoli. Org chart updated.": "Kits were delivered at Tripoli. Org chart updated.",
     "We started at dawn. Info: 40 kits were delivered.": "We started at dawn. Info: 40 kits were delivered.",
-    # (regression sweep) a code names no one: its web address goes as a link, as after a common word; a
-    # school year's code ("SY2024") before a sentence missing its space stays
-    "How many G5 at Tyre.Gov": "How many G5 at [link withheld]",
+    # (regression sweep) a school year's code ("SY2024") before a sentence missing its space stays (no ending
+    # of a domain after it: the written spec's E1 does not read it)
     "What were the SY2024 at SCHOOL.both many visits": "What were the SY2024 at SCHOOL.both many visits",
     "What happened at Mt.Lebanon?": "What happened at Mt.Lebanon?",
     "Show findings for schools at St.Joseph and Mar.Elias": "Show findings for schools at St.Joseph and Mar.Elias",
@@ -448,7 +418,6 @@ TYPED_NOT_ADDRESSES = {
     "Students from St.Joseph at Tyre. Info sessions were held?": (
         "Students from St.Joseph at Tyre. Info sessions were held?"
     ),
-    "Class 4B at Tyre. Info sessions for parents?": "Class 4B at Tyre. Info sessions for parents?",
     "Meeting @ Halba. NGO partners attended?": "Meeting @ Halba. NGO partners attended?",
     # a place written with an abbreviation in lower case, or two places joined by a full stop, after "at": no
     # address and no link
@@ -491,9 +460,6 @@ TYPED_NOT_ADDRESSES = {
     "How many cases at Halba. Info?": "How many cases at Halba. Info?",
     "Which partners at Halba. Info?": "Which partners at Halba. Info?",
     # a field's code holding a digit before a place and a sentence
-    "Monitoring visit to School2 at Akkar. NGO staff were present?": (
-        "Monitoring visit to School2 at Akkar. NGO staff were present?"
-    ),
     # a sentence missing its space after a place, its next word one a request goes on with
     "how many visits at akkar.show the total by district": "how many visits at akkar.show the total by district",
     "numbers at akkar.total by district": "numbers at akkar.total by district",
@@ -1023,6 +989,17 @@ SPEC_TYPED = {
     "zayna at Zaynafakemira. Info sessions followed": "[email withheld] sessions followed",
     "Met rania at Bebnine. Org replied.": "Met [email withheld] replied.",
     "What was the Xyzzy at Halba. Net?": "What was the [email withheld]?",
+    # (follow-up 1) a code holding a digit is a name's word too: initials or a birth date and digits ("t3",
+    # "may1990", "ZM2"), whatever a grade's or a field's code looks like ("G5", "4B", "School2")
+    "Met may1990 at Halba. Org chart updated.": "Met [email withheld] chart updated.",
+    "Dear MAY1990@Beirut. CH Thanks": "Dear [email withheld] Thanks",
+    "Thanks ms2 [at] icloud . mil will call back.": "Thanks [email withheld] will call back.",
+    "Ms. oct1987\uff20chtoura. Edu for the files.": "Ms. [email withheld] for the files.",
+    "How many G5 at Tyre.Gov": "How many [email withheld]",
+    "Class 4B at Tyre. Info sessions for parents?": "Class [email withheld] sessions for parents?",
+    "Monitoring visit to School2 at Akkar. NGO staff were present?": (
+        "Monitoring visit to [email withheld] staff were present?"
+    ),
     "We arrived at the point eg the school gate": "We [email withheld] the school gate",
     # a word of no sentence's closed list, or a place no list registers ("Hammana", "Zouk", "Deir"): no sentence's
     # reading in what a person types (a record's text keeps it, the record rule's known limit)
@@ -1044,9 +1021,23 @@ SPEC_TYPED = {
         "Contacts: [email withheld], monitoring [email withheld]"
     ),
     "Cc: partners at example. Org; the field team at example. Org": "Cc: [email withheld]; the field [email withheld]",
+    # (follow-up 1) a colon after the mailing context, the name glued to a header's colon, an ending left after
+    # the domain withheld; and a sentence's word written to itself ("Email staff at") is E2's, not E4's
+    "The address is: monitoring at example. Org": "The address is: [email withheld]",
+    "To:our school(at)Zqxmail. CO.": "To:our [email withheld].",
+    "Recipients:the Info At Gmail.Qa (urgent)": "Recipients:the [email withheld] (urgent)",
+    "Her email is: info\uff20example. IO for the files.": "Her email is: [email withheld] for the files.",
+    "Recipients:the field DATA\uff20example. gov. Dev if anything changes.": (
+        "Recipients:the field [email withheld] if anything changes."
+    ),
+    "Email staff at Halba. Org chart updated.": "Email [email withheld] chart updated.",
     # E3: a page's word after a verb that goes to a page, a word between "the" and it too: the domain goes as a link
     "Report to the new portal at zfakemira. org": "Report to the new portal at [link withheld]",
     "Submit it to the portal at zfakemira. Org": "Submit it to the portal at [link withheld]",
+    # (follow-up 1) the verb in any form, and what goes to the page between the verb and "to"
+    "We posted all the attendance sheets to the updated platform at KHOURY. Mil": (
+        "We posted all the attendance sheets to the updated platform at [link withheld]"
+    ),
     # E5
     "zfakemira at St.Joseph. Org": "[email withheld]",
     "Met rhaddad at St.Joseph.": "Met [email withheld].",
@@ -1082,6 +1073,27 @@ SPEC_RECORD = {
         "Contacts: [email withheld], monitoring [email withheld]"
     ),
     "Submit it to the portal at zfakemira. Org": "Submit it to the portal at [link withheld]",
+    # (follow-up 1) E1, a code holding a digit before "at" (a field's, a class's, a grade's, a birth date's):
+    # a name's word as any other, whatever sentence follows
+    "Students of 9B at Halba. Info sessions were held for parents.": (
+        "Students of [email withheld] sessions were held for parents."
+    ),
+    "Class 4B at Tyre. Info sessions for parents were held.": "Class [email withheld] sessions for parents were held.",
+    "Students of Grade 9B at Halba. NGO staff ran the session.": (
+        "Students of Grade [email withheld] staff ran the session."
+    ),
+    "Visit2 at Akkar. NGO staff were present.": "[email withheld] staff were present.",
+    "ITS12 at Bekaa. NGO staff were present.": "[email withheld] staff were present.",
+    "Lab3 at Halba. eg chairs were broken.": "[email withheld] chairs were broken.",
+    "School2 at Saida. Info sessions were held.": "[email withheld] sessions were held.",
+    "Our MAY1990 At nabatieh.Com.": "Our [email withheld].",
+    # E2 and E3 as in what a person types
+    "The address is: monitoring at example. Org": "The address is: [email withheld]",
+    "To:our school(at)Zqxmail. CO.": "To:our [email withheld].",
+    "Email staff at Halba. Org chart updated.": "Email [email withheld] chart updated.",
+    "We posted all the attendance sheets to the updated platform at KHOURY. Mil": (
+        "We posted all the attendance sheets to the updated platform at [link withheld]"
+    ),
 }
 # (the written spec, E3) a page's word after a verb that goes to a page, a word between "the" and it too: no
 # word of the domain is left on any path, the KM Database's too (which reads no link after it)
@@ -1090,6 +1102,10 @@ SPEC_PAGES = {
     "Submit it to the school portal at haddad. org": "Submit it to the school portal at [link withheld]",
     "Teachers report to the online form at zfakemira. lb": "Teachers report to the online form at [link withheld]",
     "Submit it to the portal at zfakemira. Org": "Submit it to the portal at [link withheld]",
+    "Teachers reported to the portal at zfakemira. Org first.": "Teachers reported to the portal at [link withheld] first.",
+    "Please upload all the attendance sheets to the portal at zfakemira. Org first.": (
+        "Please upload all the attendance sheets to the portal at [link withheld] first."
+    ),
 }
 # (the written spec, E4) a narrative subject, a sentence's verb or noun in lower case, "at", a registered
 # Lebanese place written capitalised, a full stop, a space, a capitalised ending and a sentence in lower case:
@@ -1103,6 +1119,12 @@ SPEC_KEPT = (
     "Kits were stationed at Halba. Lb of rice each.",
     "Classes resumed at Zahle. Net enrolment rose after that?",
     "Staff were based at Chtaura. Info office closed.",
+    # (follow-up 1) a subject that opens with a word that mails ("Contact", "Copy", "Email"): no mailing context
+    # writes to the sentence's word itself
+    "Contact sessions were held at Matn. Info packs were shared.",
+    "Copy books were delivered at Tripoli. Net intake rose.",
+    "Contact sessions resumed at Batroun. Info sessions were held.",
+    "Email accounts were opened at Tyre. Org chart changed after that?",
 )
 # what a person types with an address's name before a link's scheme (a name's shape, or "at" written as no
 # sentence writes it): no e-mail address, but its name goes as one would (what is sent and kept is the same on

@@ -399,8 +399,9 @@ come from.
   variation selectors and fillers).
   - *Five rules come first*, in every text, typed or not, before the readings below (the written privacy spec's
     E1 to E5, `people.written_out`, `people.spelled_out`):
-    1. A word that may name someone before "at" (any word but one that names no one, a place's name or a
-       code), then a domain (an invented word, a mail provider, a place's name, "Mt. Lebanon", "St.Joseph",
+    1. A word that may name someone before "at" (any word but one that names no one or a place's name; a code
+       holding a digit too, "t3", "ZM2", "may1990", "G5", "ITS12": initials or a birth date and digits look like
+       a grade's or a field's code), then a domain (an invented word, a mail provider, a place's name, "Mt. Lebanon", "St.Joseph",
        "the" or "health" before "point") and an ending of `people.KNOWN_ENDINGS` in any case after a dot, a
        dot and a space, a space and a dot or a dot spelled out: the name and the domain go, whatever comes
        before the name, a determiner too ("Our Rania at Halba. Org has the files" → "Our [email withheld] has
@@ -414,15 +415,19 @@ come from.
        Riverside. Net enrolment rose": the record rule's known limit).
     2. A mailing context before the name, up to two words between them ("write to", "email", "mail", "send
        (it) to", "cc", "copy", "contact", "reply to", "forward (it) to", "reach", "get in touch with", "To:",
-       "Cc:", "Bcc:", "Recipients:", "Contacts:", "Mailboxes:", "the address is", "her email is"): the whole
+       "Cc:", "Bcc:", "Recipients:", "Contacts:", "Mailboxes:", "the address is", "her email is"; a colon after
+       it too, "The address is: monitoring at example. Org", and the name glued to a header's colon,
+       "To:our school(at)Zqxmail. CO."): the whole
        address goes, whatever word its name is ("Write to the school at Minyara. Net for the files" → "Write
        to the [email withheld] for the files", "Contact us at example.org" → "Contact [email withheld]"). In
        a list of addresses joined by ",", ";", "/", "&", "and", "or" or "cc", every item after one withheld
        goes too, whatever its name ("To: monitoring at example. Org, IT at example. Org", "Cc: partners at
        example. Org; the field team at example. Org"), and so does an ending left after an address withheld
-       ("x@St.Joseph. Org", "x arobase health point gov point Co").
+       ("x@St.Joseph. Org", "x arobase health point gov point Co", "x＠example. gov. Dev").
     3. A page's word after a verb that goes to a page ("submit", "upload", "post", "return", "report", "log
-       in", "sign in", "navigate") and "to the", one word between them too: its domain goes as a link in every
+       in", "sign in", "navigate", in any form: "posted", "reported", "uploading"; what goes there may stand
+       between the verb and "to", "all the attendance sheets") and "to the", one word between them too: its
+       domain goes as a link in every
        text, the KM Database's too ("Report to the new portal at zfakemira. org" → "Report to the new portal
        at [link withheld]"); before "before June" or "thanks" it is a mailbox and goes whole.
     4. A field note's sentence stays: a sentence's verb or noun of a closed list in lower case
@@ -430,7 +435,10 @@ come from.
        "based", "met", "staff", "training"...), " at ", a registered Lebanese place written capitalised (the
        KM Database's places, `people.MAIN_PLACE_WORDS`; after "Mt." too), ". ", "Org", "Net", "Info" or "Lb"
        and a word in lower case ("Teachers trained at Bebnine. Net enrolment rose after that?", "Kits were
-       stationed at Halba. Lb of rice each"). Those words are a sentence's in that shape only; a place no list
+       stationed at Halba. Lb of rice each"); a subject that opens with a word that mails is still a subject
+       ("Contact sessions were held at Matn. Info packs were shared"), but a mailing context that writes to
+       the sentence's word itself makes it rule 2's ("Email staff at Halba. Org chart updated" → "Email [email
+       withheld] chart updated"). Those words are a sentence's in that shape only; a place no list
        registers is no place there ("Teachers trained at Hammana. Net enrolment rose after that?" loses
        "trained at Hammana. Net" in what a person types; a record's text keeps it, as above).
     5. In what a person types, a word that may name someone, in any case and after any "at", before a place's
@@ -497,10 +505,10 @@ come from.
     question counts ("the enrolment at", "rates at", "dropout at", "the GER at", "cases at", "partners at") or
     a web address's, a citation's or a page's word ("available", "published", "the dashboard", "the guide",
     "the profile", "accessed", "Visit us", "the focal point", "the methodology", "the chart", "an error at",
-    "the red flag at", "the page is blank at", "I am stuck at", "the map hangs at"), or a code, which names no
-    one ("How many G5 at [link withheld]" for "Tyre.Gov"; before a domain whose words no sentence writes, a
-    code is an address's name whatever follows, in every text: "How many [email withheld]", "team1 at
-    example. org before June", "G5 at mail.example.it thanks" go whole); "visits at mt.lebanon",
+    "the red flag at", "the page is blank at", "I am stuck at", "the map hangs at"); a code holding a digit
+    is a name's word before a domain with an ending (rule 1 above: "How many [email withheld]" for "How many
+    G5 at Tyre.Gov", "team1 at example. org before June", "G5 at mail.example.it thanks" go whole); "visits
+    at mt.lebanon",
     "red flags at akkar.district" stay. What is glued after an address's domain goes with it ("x at
     example.co.It", "x at mail.example.me", "x@example[.]com.lb", "x at example dot gov.lb", "x at example.
     net.lb", "x@example.com. lb", "x @pytest.mark.parts_may_fail"), and so does a name written with spaced
@@ -549,8 +557,10 @@ come from.
     grade, a grade's or a programme's code ("CE2", "CM1", "BT2", "TS1", "BLN2", "ALP1"), a plan's year
     ("LCRP2023"), a class, a version, "COVID-19", "H1N1" or a field's code (a visit's, a shift's, a camp's, a
     lab's, a bus's, a cohort's, a floor's, a school's, a centre's, an informal tented settlement's, "PS12",
-    "PD12", "FY24") before "at" ("9.30am at halba.we met", "Visit no.2 at akkar.we", "KG2 at school.it was",
-    "4B", "v2.0", "Visit3 at halba.no issues", "ITS12 at Bekaa. NGO staff") names no one. A question kept
+    "PD12", "FY24") before "at" and a sentence missing its space after a place ("9.30am at halba.we met",
+    "Visit no.2 at akkar.we", "KG2 at school.it was", "v2.0", "Visit3 at halba.no issues") names no one;
+    before a domain and one of `people.KNOWN_ENDINGS` it is a name's word as any other (rule 1: "ITS12 at
+    Bekaa. NGO staff" → "[email withheld] staff"). A question kept
     before this rule, whose domain alone was taken as a link ("x at [link withheld]"), loses the name when it
     is sent again (Monitoring insights chat, Help assistant), and so does a plain word before a link with its
     scheme on the next turn, which reads the same (unless it names no one, as a page's words: "the map hangs
@@ -589,8 +599,9 @@ come from.
     https://example.org", "x2 at https://example.org", "x2 at hxxps[:]//example[.]org"; "Release v2.0 at
     https://..." keeps its words). So "published at Example.Org", "located at Tyre.Net", "at school.it was",
     "at 2pm at Halba.We met", "Arrived 10.15am at tyre.it was raining", "Visit no.2 at akkar.we met",
-    "DISTRIBUTION AT SITE.NO ISSUES", "Students of 9B at Halba. Info sessions", "Visit2 at Akkar. NGO staff",
-    "Meeting @ Zahle. Net enrolment" and "look at the dot plot" keep their words (a domain still goes as a
+    "DISTRIBUTION AT SITE.NO ISSUES", "Meeting @ Zahle. Net enrolment" and "look at the dot plot" keep their
+    words ("Students of 9B at Halba. Info sessions", "Visit2 at Akkar. NGO staff" lose the code and the place:
+    rule 1) (a domain still goes as a
     link), and so do "x at Example.Org", "x at example. org", "x at example.ogr", "x at example.school", "x at
     example. net" and "x at example.it" after a plain word that nothing writes to; any other word before "at
     www." or a path goes with the address ("x at example.org/ops", a list of focal points "x at example dot
@@ -1688,8 +1699,12 @@ strongest; `neurodb.km.columns.CONFIDENCE_A_STRONGEST` turns on the colours once
   "Fakename, a boy", "“…,” said Fakename, 14.", "“…,” Fakename, 14, explained", "In an interview, Fakename,
   14,", "interview with Fakename, 14"; never a role: "said Mother, 34"), reference lists ("Doe, J.", "Roe Poe,
   M. C."; "Doe J" and "Doe J. Fake title" for a KM author; written the Vancouver way with two authors or
-  more, with or without a year, "Doe J, Roe PM. Fake title. 2019.", "Doe AB, Roe C.", whatever the authors and
-  with an author already withheld: `S1V`, never a word that is no name, "Grade A, Grade B."), "Doe 2020:" and "Doe 2020 (Lebanon)" or "Doe 2021
+  more, with or without a year, "Doe J, Roe PM. Fake title. 2019.", "Doe AB, Roe C.", a surname of two words
+  too, "Abou Khalil QK", "Van Roe M", whatever the authors and with an author already withheld: `S1V`, never a
+  word that is no name, "Grade A, Grade B."), names joined by a comma before a bare year (`C5C`, judged as a
+  pair joined by "and" is: "Plot Lina, Nabatieh 2017" loses "Plot Lina") or listed with a comma before a year
+  in brackets ("Hill, Quenvell (2021)": both go), a title before a verb with a no-break or a thin
+  no-break space too (U+00A0, U+202F: "Amb. Plot Morvane 2023"), "Doe 2020:" and "Doe 2020 (Lebanon)" or "Doe 2021
   (Bebnine)" (never an event's or a topic's word or a common noun in the plural: "Cholera 2022 (Bebnine)",
   "Floods 2023 (Saida)", "Displacement 2024 (Saida)" stay; a singular word with a common noun's ending or an
   event's word that is a family name too only when it is a common word or the text also writes it in lower
@@ -1814,14 +1829,19 @@ asked). In order:
    a citation's, in the question as in a record's text (`C9`: "What did Quenby 2019 say?"; an event's or a
    topic's word stays, as before a year elsewhere: "How did Covid 2020 change enrolment?", and so do an exam's,
    a tool's or a holiday's word: "By Brevet 2019, how many passed?", "What did Easter 2023 attendance look
-   like?"). A question that is only a plain request about places (`privacy.REQUEST`) keeps every town: a request's verb at the very start of the text (`REQUEST_VERBS`: "Show", "Compare",
-   "Summarise", "Describe", "Map", "List", "Rank", ...; never "See", a citation's signal), "What about", "Any
-   data on", "How did ... compare?", "Dropout in" or nothing; two to four towns joined by "," or "and" (never
-   "&"): a main town, `MAIN_PLACE_WORDS`, "Chtoura", "Chtaura", "Anjar", "Majdal Anjar", or a place's name of
-   several words that a place's word marks ("Western Bekaa", "Bint Jbeil"; never one made only of words a name
-   has, "Saad Nayel", nor one with a place's word that is a name too, "West Bekaa"), none a KM author's
-   surname; a bare year; then nothing, "?", "." or "dropout", "enrolment", "attendance (rates)", "data" or
-   "schools". Its verb is kept in lower case ("compare Chtoura and Zahle 2022"), and such a line keeps its
+   like?"; "by" or "per" in lower case too where it opens the text or a sentence, "by Brevet 2023, dropout
+   rose"; "A paper by Brevet 2020" is a citation's). A question that is only a plain request about places (`privacy.REQUEST`) keeps every town: a request's verb at the very start of the text (`REQUEST_VERBS`: "Show", "Compare",
+   "Summarise", "Describe", "Map", "List", "Rank", "Visualise", "Graph", "Display", "Tabulate", ...; never
+   "See", a citation's signal), "What about", "How about", "(Any) data on", "How did ... compare?", "Dropout
+   in", "Enrolment (rates) in", "Attendance in" or nothing; two to four towns joined by "," or "and" (never
+   "&"): a main town, `MAIN_PLACE_WORDS`, "Chtoura", "Chtaura", "Anjar", "Majdal Anjar", "Qobayat", any other
+   town's one-word spelling of the places (`PLACE_NAMES_ONE`: "Amchit", "Bikfaya", "Tebnine") that is no
+   family name's spelling (`people.TOWN_WORDS`: "Saida", "Naameh", "Qana", "Houla" stay names there) nor a
+   direction's or an area's word ("North"), or a place's name of several words that a place's word marks
+   ("Western Bekaa", "Bint Jbeil"; never one made only of words a name has, "Saad Nayel", nor one with a
+   place's word that is a name too, "West Bekaa"), none a KM author's surname; a bare year; then nothing,
+   "?", "." or "dropout", "enrolment", "attendance", "pass", "repetition" (with "rate" or "rates" too),
+   "data" or "schools". Its verb is kept in lower case ("compare Chtoura and Zahle 2022"), and such a line keeps its
    towns in every later reading too (a record's rule, the final check of the message, "Question: compare
    Chtoura and Zahle 2022", a list of earlier questions, a download's About sheet: `privacy._requests`). Any
    other text is read as any text, the verb with the town after it as one name: a word before the verb ("Thanks.

@@ -758,13 +758,14 @@ def test_the_final_review_keeps_a_sentence_after_a_places_name():
 def test_what_the_pushed_rules_withheld_stays_withheld():
     """The regression sweep against the pushed rules (every corpus text through every path, compared word by
     word): a document sent whole, which no link rule reads after, loses a web address written after a word
-    and "at" as a link, a code's too; what is glued after an address withheld goes with it; a sentence's
+    and "at" as a link (a code before it is a name's word: the written spec's E1); what is glued after an
+    address withheld goes with it; a sentence's
     "point" is no French dot; a filter's search words and a page's address read a web address after "at" the
     typed rule withholds."""
     for text, sent in {
         "Visit us at zaynafakemira.org for the files.": "Visit us at [link withheld] for the files.",
         "Contact us at zaynafakemira.org for the files.": "Contact [email withheld] for the files.",
-        "How many Session2 at SCHOOL.Net many visits": "How many Session2 at [link withheld] many visits",
+        "How many Session2 at SCHOOL.Net many visits": "How many [email withheld] many visits",
         "x.y at example.org.It was": "[email withheld] was",
         "Fake notes: ZFAKEMIRA AT example.co.SHOW is the focal point": (
             "Fake notes: [email withheld] is the focal point"
