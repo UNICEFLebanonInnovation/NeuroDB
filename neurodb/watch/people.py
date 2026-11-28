@@ -56,7 +56,7 @@ INVISIBLE = re.compile(
 _AT_SIGN = "[@＠﹫]"  # with the full-width and the small at sign
 # a country's ending after a domain's: glued in lower case or in capitals ("example[.]com.lb", "example dot
 # gov.lb", "example. net.lb", "example[.]co.UK"), or after a full stop and a space as a phone's keyboard
-# writes it ("x@example.com. lb"; only the endings no sentence starts with in lower case): part of the
+# writes it ("x@example.org. lb"; only the endings no sentence starts with in lower case): part of the
 # domain, never left after the address withheld ("[email withheld].lb")
 _COUNTRIES = "lb|fr|uk|de|ch|ca|ae|sa|qa|jo|eg|nl|se|au|io|sy|tr"
 _COUNTRY_SPACED = rf"\.\s(?-i:{_COUNTRIES})\b"
@@ -1370,7 +1370,7 @@ _ENDING_AFTER = re.compile(
     re.IGNORECASE,
 )
 # after a link withheld, the labels of its domain the link rule left ("[link withheld].it was closed" from
-# "mail.example.it", "more info at [link withheld].it" from "example.com.it")
+# "mail.example.it", "more info at [link withheld].it" from "example.org.it")
 _GLUED_AFTER_LINK = re.compile(rf"(?<={re.escape(LINK_WITHHELD)})(?:\.[^\W\d_]{{2,24}}(?![\w-]))+")
 
 

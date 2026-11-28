@@ -499,7 +499,7 @@ come from.
     ("status at example.online", "dropout at example.plus before June"); a domain whose words no sentence
     writes (`people._foreign`) is a web address's whatever its ending and whatever follows ("How many visits
     at [link withheld] were done", "the guide at [link withheld] was down"), and what the link rule leaves
-    glued after a link goes with it ("more info at [link withheld]" from "example.com.it", "registration at
+    glued after a link goes with it ("more info at [link withheld]" from "example.org.it", "registration at
     [link withheld] was closed" from "mail.example.it" in a record): a common word ("children at [link
     withheld]"), a measure or what a
     question counts ("the enrolment at", "rates at", "dropout at", "the GER at", "cases at", "partners at") or
@@ -511,7 +511,7 @@ come from.
     at mt.lebanon",
     "red flags at akkar.district" stay. What is glued after an address's domain goes with it ("x at
     example.co.It", "x at mail.example.me", "x@example[.]com.lb", "x at example dot gov.lb", "x at example.
-    net.lb", "x@example.com. lb", "x @pytest.mark.parts_may_fail"), and so does a name written with spaced
+    net.lb", "x@example.org. lb", "x @pytest.mark.parts_may_fail"), and so does a name written with spaced
     dots before an at sign with spaces ("x . y  @  example . org"). After a word that may name someone, an
     ending that is a word of a sentence's grammar counts too ("x at example.now", "x at example.all"). Any
     other word goes with the address, and so does what is left of a

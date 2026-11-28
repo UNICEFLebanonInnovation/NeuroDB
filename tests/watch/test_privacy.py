@@ -811,7 +811,7 @@ def test_what_the_pushed_rules_withheld_stays_withheld_round_two():
     )
     assert people.glued_after("see [link withheld].it was closed") == "see [link withheld] was closed"
     assert people.glued_after("see [link withheld]. It was closed") == "see [link withheld]. It was closed"
-    assert redact.text("Visit example.com.it today", 500, frozenset()) == "Visit [link withheld] today"
+    assert redact.text("Visit example.org.it today", 500, frozenset()) == "Visit [link withheld] today"
     for text, sent in {
         "How many G5 at example.it was closed": "How many [email withheld] was closed",
         "F09 at Example.Org": "[email withheld]",

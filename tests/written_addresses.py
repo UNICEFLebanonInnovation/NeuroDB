@@ -280,7 +280,7 @@ RECORD_LINKS = {
     "Contact us at zaynafakemira.online for the files.": "Contact us at [link withheld] for the files.",
     # (regression sweep 2) a domain of several labels, or one the link rule ends before its last label: the
     # labels glued after it go with it
-    "more info at example.com.it": "more info at [link withheld]",
+    "more info at example.org.it": "more info at [link withheld]",
     "registration at mail.example.it was closed": "registration at [link withheld] was closed",
     "the dashboard at portal.example.no is down": "the dashboard at [link withheld] is down",
     "How many visits at rania-fakemira.it were done": "How many visits at [link withheld] were done",
@@ -560,7 +560,7 @@ TYPED_ADDRESSES = {
     "write to info at Zaynafakemira.Sy": "write to [email withheld]",
     # (regression sweep) an ending that is a word of a sentence's grammar after a word that may name someone
     # (".now", ".all", ".out"); a country's ending after a domain written out or spaced ("example[.]com.lb",
-    # "example dot co.uk", "example. net.lb", "example.com. lb"); a name before its full stop and a space
+    # "example dot co.uk", "example. net.lb", "example.org. lb"); a name before its full stop and a space
     # ("zayna . fakemira  @  example . org"); a code written to before a domain no sentence writes
     "zfakemira at example.now": "[email withheld]",
     "Who is zayna.fakemira AT example.now": "Who is [email withheld]",
@@ -570,7 +570,7 @@ TYPED_ADDRESSES = {
     "is zfakemira @ example dot co.uk correct?": "is [email withheld] correct?",
     "email zayna_fakemira at example. net.lb please": "email [email withheld] please",
     "write to Zfakemira AT example. com.lb before June": "write to [email withheld] before June",
-    "2zfakemira @ example.com. lb": "[email withheld]",
+    "2zfakemira @ example.org. lb": "[email withheld]",
     "zayna . fakemira  @  example . org": "[email withheld]",
     "is Zfakemira at example. ORG correct?": "is [email withheld] correct?",
     "Fake survey: write to KG2 at example.it for the files.": "Fake survey: write to [email withheld] for the files.",
