@@ -91,9 +91,13 @@ gives it.
   individual authors without naming them: "UNICEF + 2 authors", "Authors: 3", or the organisations alone.
   When it is not sure whether a name is a person or an organisation, it counts it as a person.
 - **Names of people inside the texts are withheld** in the files: citations ("Doe et al. (2019)", "(Doe,
-  2019)", "(Doe 2019, Roe 2020)", "Doe and Roe 2020", every name of "Doe, Roe and Poe (2019)"), reference
-  lists ("Doe, J.", "Doe J, Roe P. Title. 2019."), people quoted by their first name and age, a document's own
-  authors and names after a title are written "[name withheld]". Links and figures are kept.
+  2019)", "(Doe 2019, Roe 2020)", "Doe and Roe 2020", every name of "Doe, Roe and Poe (2019)", "By Doe 2019",
+  "What did Doe 2019 say", "Tyre and Halba 2019; Doe 2020"), reference lists ("Doe, J.", "Doe J, Roe P.
+  Title. 2019.", "Doe AB, Roe C." with or without a year), people quoted by their first name and age, a
+  document's own authors and names after a title ("Dr. Doe", "Amb. Doe") are written "[name withheld]". A
+  country's or a place's word that is also a person's name ("Jordan", "West", "Costa", "Arab") is a name in
+  those shapes ("Jordan et al. (2020)", "Tyre and Costa 2023") and a place only where it is written as one
+  ("refugees in Jordan 2019"). Links and figures are kept.
 - Your search words are written in the *About* sheet only when none of them names an author.
 - **Excel of these findings** and **CSV of these findings**, under each answer of *Ask the KM Database*,
   download the findings that answer read, with every column and the same rules: those it cites first,
@@ -216,13 +220,20 @@ download the findings it read.
   organisation stays, the person goes ("UNICEF & Vantrell 2020"); "Said" before a name is a first name. An
   exam, a school level, a subject or a tool after "In", "Source:" or "Data:" stays ("In Brevet 2023", "Source:
   Fieldwork 2023", "Data: Interviews 2023"), but never after "by" or in a pair of authors ("A paper by Brevet
-  and Quenby 2020" loses both). Your question also loses a name before a year after "did", "does" or "By"
-  ("What did Quenby 2019 say?"). A request's verb that opens your question ("Show", "Compare", "Summarise",
-  "Describe", "Map") is no name before places and a bare year and is kept in lower case ("show Beirut and Tyre
-  2023"), but only when your question then names no one; before a citation ("Summarise Tyre et al. (2020)",
-  "Summarize French, Q. (2019)"), "&", or a place that is also a person's name ("Show Jordan and Tyre 2023"),
-  it is read with the name, which goes; elsewhere these words are family names too ("Rank et al. (2019)",
-  "List, Q. (2019)", "See & Quenby 2021" lose them). An e-mail address is taken out whole, also when it is written
+  and Quenby 2020" loses both). A name before a year after "did", "does", "By", "According to" or "Per" goes
+  ("What did Quenby 2019 say?"), but an exam, a tool or a holiday stays there ("By Brevet 2019, how many
+  passed?", "According to Kobo 2023", "What did Easter 2023 attendance look like?"). A question that is only
+  a plain request about places keeps its towns: a request's verb at its start ("Show", "Compare", "Summarise",
+  "Describe", "Map", "List", "Rank"...; never "See"), "What about", "Any data on", "How did ... compare?" or
+  "Dropout in", or nothing; then two to four of Lebanon's main towns (or a place's name of several words such
+  as "Western Bekaa"; "Chtoura", "Anjar" and "Majdal Anjar" too), joined by commas or "and"; a bare year; and
+  nothing more than "?", "." or a word such as "dropout", "enrolment", "attendance rates" or "data" ("Compare
+  Chtoura and Zahle 2022" is kept as "compare Chtoura and Zahle 2022"). Anything else is read as any text,
+  and the verb goes with the town after it: a word before the verb ("Thanks. Show Tyre and Halba 2023", a
+  first name, an initial or a title), a citation's form after the year ("Summarise Halba and Tyre 2019: 4-5",
+  "... 2019 who found", "... 2019; Zahle 2020", "... 2019 findings"), "&", or a place that is also a person's
+  name ("Show Jordan and Tyre 2023" loses "Show Jordan"); these verbs are family names too elsewhere ("Rank et
+  al. (2019)", "List, Q. (2019)", "See & Quenby 2021" lose them). An e-mail address is taken out whole, also when it is written
   out with "at" and "dot" in words, with dashes or in brackets ("x [ at ] example [ dot ] org", "x -at-
   example -dot- org"), in your question and in the downloads; in your question also any name before "at" and a
   web address, in capitals or not, while a common word stays ("children at [link withheld]"). If a name is

@@ -1050,7 +1050,6 @@ PAIRS_NOT_WRITTEN_AS_PLACES = {
     "In Bar Elias and Zahle 2023, fees rose.": f"{W} and Zahle 2023, fees rose.",
     "What about Saida and Tyre 2023?": f"What about {W} and Tyre 2023?",
     "Visits to Chtoura and Tyre 2023": f"Visits to {W} and Tyre 2023",
-    "What about Majdal Anjar and Tyre 2023?": f"What about {W} and Tyre 2023?",
     "Haret Hreik and Beirut 2023 dropout rates": f"{W} and Beirut 2023 dropout rates",
 }
 PAIRS_WITHHELD = {
@@ -1233,7 +1232,7 @@ def test_a_pair_written_by_its_authors_loses_both_names():
         "Brevet and Zorgwell 2020 make the case that fees matter.": (
             f"{W} and {W} 2020 make the case that fees matter."
         ),
-        "A paper by Naameh and Jordan 2020 shows high dropout.": f"A paper by {W} and Jordan 2020 shows high dropout.",
+        "A paper by Naameh and Jordan 2020 shows high dropout.": f"A paper by {W} and {W} 2020 shows high dropout.",
         "Edited by Houla and Tyre 2021.": f"Edited by {W} and Tyre 2021.",
         "The report by Qana and Tyre 2021 shows high dropout.": f"The report by {W} and Tyre 2021 shows high dropout.",
         "Naameh and Tyre 2021 make the case that fees matter.": f"{W} and Tyre 2021 make the case that fees matter.",
@@ -1272,24 +1271,24 @@ REQUESTS_CITED = {
     "Summarise Tyre et al. (2020)": f"{W} et al. (2020)",
     "Summarize French, Q. (2019)": f"{W} (2019)",
     "Summarise Tyre, Q. (2020)": f"{W} (2020)",
-    "Summarise West and Jordan (2020)": f"{W} and Jordan (2020)",
+    "Summarise West and Jordan (2020)": f"{W} and {W} (2020)",
     "Summarise Halba and Tyre (2019)": f"{W} and Tyre (2019)",
     "Summarise West et al. (2019) on attendance in Akkar": f"{W} et al. (2019) on attendance in Akkar",
     "Explain French et al. 2019 findings on attendance": f"{W} et al. 2019 findings on attendance",
     "Describe West (2019) on dropout": f"{W} (2019) on dropout",
     "Summarise West et al.": f"{W} et al.",
     "Thanks. Summarise French et al. (2019).": f"Thanks. {W} et al. (2019).",
-    "Summarise France & Jordan 2020": f"{W} & Jordan 2020",
+    "Summarise France & Jordan 2020": f"{W} & {W} 2020",
     "Dr. Show Haddad 2020": f"{W} 2020",
     "Explain Beirut et al. (2018)": f"{W} et al. (2018)",
-    "Compare Georgia and Chad 2020": f"{W} and Chad 2020",
-    "Compare West and Jordan 2020": f"{W} and Jordan 2020",
+    "Compare Georgia and Chad 2020": f"{W} and {W} 2020",
+    "Compare West and Jordan 2020": f"{W} and {W} 2020",
     "Show West and Tyre 2023": f"{W} and Tyre 2023",
     "Show Jordan and Tyre 2023": f"{W} and Tyre 2023",
     "Show North and Tyre 2023": f"{W} and Tyre 2023",
-    "Summarise France and Jordan 2020": f"{W} and Jordan 2020",
-    "Summarise Jordan and West 2020 who interviewed 40 teachers": f"{W} and West 2020 who interviewed 40 teachers",
-    "Summarise Georgia and Chad 2020's findings": f"{W} and Chad 2020's findings",
+    "Summarise France and Jordan 2020": f"{W} and {W} 2020",
+    "Summarise Jordan and West 2020 who interviewed 40 teachers": f"{W} and {W} 2020 who interviewed 40 teachers",
+    "Summarise Georgia and Chad 2020's findings": f"{W} and {W} 2020's findings",
 }
 
 
@@ -1388,15 +1387,15 @@ def test_a_list_after_by_loses_every_name_once_one_is_withheld():
             "Quenby Q, Morvane J, et al. Fake title. Beirut: Example Press; 2020.",
             f"{W} Q, {W} J, et al. Fake title. Beirut: Example Press; 2020.",
         ),
-        # kept: a grade's, a phase's or an annex's letters, and no year
+        # kept: a grade's, a phase's or an annex's letters
         ("Grade A, Grade B. In 2020 fees rose.", "Grade A, Grade B. In 2020 fees rose."),
         ("Phase I, Phase II. Fees rose in 2020.", "Phase I, Phase II. Fees rose in 2020."),
-        ("Quenby Q, Morvane J. Fake title.", "Quenby Q, Morvane J. Fake title."),
+        ("Quenby Q, Morvane J. Fake title.", f"{W} Q, {W} J. Fake title."),
     ],
 )
 def test_a_vancouver_list_of_authors_is_withheld_without_a_km_surname(text, sent):
     """A reference written the Vancouver way with two authors or more ("Quenby Q, Morvane J. Title. 2019."):
-    every surname goes, whatever the KM Database's authors, in a text with a year."""
+    every surname goes, whatever the KM Database's authors, with or without a year."""
     assert privacy.for_ai(text) == sent
     assert privacy.for_download(text) == sent
     assert privacy.leftover(sent) == []
@@ -1404,24 +1403,27 @@ def test_a_vancouver_list_of_authors_is_withheld_without_a_km_surname(text, sent
 
 @pytest.mark.django_db
 def test_a_typed_question_that_asks_what_a_name_and_a_year_said_loses_the_name():
-    """In what a person typed, a name before a bare year after "did", "does", "By", "according to" or "per"
-    is a citation's; a place or an organisation stays."""
+    """A name before a bare year after "did", "does", "By", "according to" or "per" is a citation's, in what a
+    person typed and in a record's text alike; a place, an organisation, an event, an exam's or a tool's word
+    stays."""
     for text, sent in {
         "What did Quenby 2019 say about dropout?": f"What did {W} 2019 say about dropout?",
         "Did Morvane 2020 find that fees rose?": f"Did {W} 2020 find that fees rose?",
         "What does Quenby 2019 say about fees?": f"What does {W} 2019 say about fees?",
         "By Quenby 2019, how many girls left school?": f"By {W} 2019, how many girls left school?",
-        "What did Brevet 2023 show about fees?": f"What did {W} 2023 show about fees?",
     }.items():
         assert privacy.clean_question(text) == sent, text
         assert privacy.typed_for_ai(text) == sent, text
+        assert privacy.for_ai(text) == sent, text
     for text in (
         "What did Lebanon 2020 report about fees?",
         "What did UNICEF 2021 say about dropout?",
         "How does Akkar 2023 compare with Beirut?",
         "How did Covid 2020 change enrolment?",
+        "What did Brevet 2023 show about fees?",
     ):
         assert privacy.clean_question(text) == text, text
+        assert privacy.for_ai(text) == text, text
 
 
 @pytest.mark.parametrize(
@@ -1463,3 +1465,191 @@ def test_every_name_of_a_list_of_three_authors_or_more_is_withheld(text, sent):
     """C3 and C5 take two names; the names listed before them with commas are the same citation's."""
     assert privacy.for_ai(text) == sent
     assert privacy.for_download(text) == sent
+
+
+# ---------------------------------------------------- the written spec (K1-K3): KM names, a few texts per rule
+# K1: a name token in a request's or a citation's shape, a given name or an initial before a request's verb,
+# a title before a verb: withheld on every KM path (a record's, a download's, a typed question's), whatever the
+# word also is (a place: "Jordan", "Costa", "Arab", "West"; a word: "Said")
+SPEC_K1 = {
+    "Show Jordan and Tyre 2023": "jordan",
+    "Show Tyre and Costa 2023": "costa",
+    "Compare Asia and Costa 2020": "costa",
+    "Rank Tyre and Quenby 2021 dropout": "quenby",
+    "Summarise Costa and Tyre 2020 who interviewed 40 teachers": "costa",
+    "Arab et al. (2021)": "arab",
+    "See Tyre and Jordan (2019)": "jordan",
+    "Quenby & West 2020 found high dropout.": "west",
+    "West, Q. (2019)": "west",
+    "By Said 2019, dropout rose.": "said",
+    "By Quenby 2021, how many passed?": "quenby",
+    "What did Quenby 2019 say?": "quenby",
+    "What did Jordan 2020 say about dropout?": "jordan",
+    "According to Said 2021": "said",
+    "According to Costa 2019, dropout rose.": "costa",
+    "Quenby, Arab and Said (2018) argue that fees rose.": "arab said",
+    "See Tyre and Halba 2019; Quenby 2020": "quenby",
+    "Quenby AB, Zayna C.": "quenby zayna",
+    "Jordan AB, Tyre C.": "jordan",
+    "Zayna Q. Show Tyre and Halba 2020": "zayna",
+    "Mira Show Tyre and Halba 2020": "mira",
+    "Q. Rank Halba and Tyre 2020": "rank",
+    "Q. R. Show Beirut and Byblos 2018": "show",
+    "Amb. Show Haddad 2023": "show",
+    "Pr. Summarize Haddad 2020": "summarize",
+    "Sen. Rank Tyre and Halba 2020": "rank",
+    "Dr.\xa0Show Tyre and Halba 2020": "show",
+    "Mr.\xa0Summarise Tyre and Akkar 2024": "summarise",
+    # a K2 shape with a citation's tail is read as the rule reads it (the verb with the town)
+    "Summarise Halba and Tyre 2019: 4-5": "summarise halba",
+    "See Tyre and Halba 2019 et al.": "see tyre",
+    "Compare Tyre and Akkar 2020 (p. 4)": "compare tyre",
+    "Compare Zahle and Tripoli 2019 who found high dropout": "compare zahle",
+}
+# K1 on the "+people" paths: the KM Database's surnames (town spellings among them) in the same shapes
+SPEC_K1_PEOPLE = {
+    "Show Tyre and Naameh 2023": "naameh",
+    "Show Saida and Halba 2023": "saida",
+    "By Akar 2022, dropout rose.": "akar",
+    "What did Doe 2018 say": "doe",
+    "Kousba et al. (2020) found high dropout.": "kousba",
+    "Naameh AB, Hasroun C.": "naameh hasroun",
+}
+SPEC_PEOPLE = privacy.People(
+    names=frozenset({"q fakedoe", "r naameh"}),
+    surnames=frozenset({"naameh", "hasroun", "kousba", "akar", "saida", "fakedoe", "doe", "roe"}),
+    own={"INV-0001": frozenset({"naameh", "fakedoe"})},
+)
+
+
+def _km_paths(text: str, people: privacy.People = privacy.NOBODY) -> dict[str, str]:
+    own = frozenset({"naameh", "fakedoe"}) if people is not privacy.NOBODY else frozenset()
+    return {
+        "for_ai": privacy.for_ai(text, people, own),
+        "for_download": privacy.for_download(text, people, own),
+        "clean_question": privacy.clean_question(text, people),
+        "typed_for_ai": privacy.typed_for_ai(text, people),
+    }
+
+
+def _words(text: str) -> list[str]:
+    return [w.casefold() for w in re.findall(r"[^\W_]+", text.replace(W, " "))]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("text", "names"), SPEC_K1.items())
+def test_k1_a_name_in_a_request_or_a_citation_is_withheld_on_every_km_path(text, names):
+    for people in (privacy.NOBODY, SPEC_PEOPLE):
+        for path, cleaned in _km_paths(text, people).items():
+            for name in names.split():
+                assert _words(cleaned).count(name) < _words(text).count(name), (path, name, cleaned)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("text", "names"), SPEC_K1_PEOPLE.items())
+def test_k1_a_km_surname_in_a_request_or_a_citation_is_withheld(text, names):
+    for path, cleaned in _km_paths(text, SPEC_PEOPLE).items():
+        for name in names.split():
+            assert name not in _words(cleaned), (path, name, cleaned)
+
+
+# K2: a plain request about places (a request's verb at the start of the text, "What about", "Any data on",
+# "How did ... compare?", "Dropout in" or nothing; two or three of the main towns joined by "," or "and"; a
+# bare year; nothing, "?", "." or a measure's word after it): every town stays (the verb may go to lower case),
+# and what is kept reads the same to every later check (a record's rule, the final check, a download)
+SPEC_K2 = [
+    "Show Beirut and Tyre 2023",
+    "Compare Chtoura and Zahle 2022",
+    "compare Chtoura and Zahle 2022",
+    "Show Chtoura and Zahle 2023",
+    "What about Chtoura and Zahle 2022?",
+    "How did Chtoura and Zahle 2022 compare?",
+    "Chtoura and Zahle 2022 enrolment",
+    "Any data on Anjar and Baalbek 2023?",
+    "Compare Majdal Anjar and Zahle 2022",
+    "Compare Chtoura, Zahle and Baalbek 2022",
+    "Chtoura, Zahle and Baalbek 2022 enrolment",
+    "Rank Akkar, Minieh, and Halba 2024 dropout rates?",
+    "Contrast Jbeil and Batroun and Aley 2021 attendance rates",
+    "Dropout in Chtaura, Jbeil and Byblos 2024",
+    "Plot Jounieh, Hermel 2020.",
+    "What about Majdal Anjar and Tyre 2023?",
+]
+
+
+def _towns(text: str) -> list[str]:
+    return [
+        w for w in _words(text) if w not in {"show", "compare", "what", "about", "how", "did", "any", "data"}
+    ]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("text", SPEC_K2)
+def test_k2_a_plain_request_about_places_keeps_every_town(text):
+    people = privacy.People(surnames=frozenset({"vantrell", "naameh"}))
+    for who in (privacy.NOBODY, people):
+        for cleaned in (privacy.clean_question(text, who), privacy.typed_for_ai(text, who)):
+            assert cleaned.casefold() == text.casefold(), cleaned
+            assert privacy.for_ai(cleaned, who) == cleaned
+            assert privacy.leftover(f"Question: {cleaned}", who) == []
+            assert privacy.typed_for_ai(cleaned, who) == cleaned
+
+
+@pytest.mark.django_db
+def test_k2_is_that_shape_only():
+    """A town that is one of the KM Database's surnames, a name, a citation's tail, "See", or anything before
+    the verb: the rule reads the text as it reads any other."""
+    zahle = privacy.People(surnames=frozenset({"zahle"}))
+    assert "Zahle" not in privacy.clean_question("Compare Chtoura and Zahle 2022", zahle)
+    for text in (
+        "Compare Chtoura and Quenvell 2022",
+        "See Tyre and Halba 2019",
+        "List Tyre and Halba 2019 findings",
+        "Analyse Tripoli and Tyre 2021 paper on dropout",
+        "Show Tyre and Halba 2019 as reported by Quenby",
+        "Thanks. Show Chtoura and Zahle 2023",
+        "Visits to Chtoura and Tyre 2023",
+        "Compare Chtoura & Zahle 2022",
+        "Chtoura and Zahle (2022)",
+    ):
+        assert W in privacy.clean_question(text), text
+        assert W in privacy.typed_for_ai(text), text
+    # a record's text: a request's verb written with a capital is read with the town after it
+    assert privacy.for_ai("Compare Chtoura and Zahle 2022") == f"{W} and Zahle 2022"
+
+
+# K3: "By", "According to", "Per", "Did", "Does" or "What did", then an exam's, a tool's or a holiday's word and
+# a year: that word stays (a holiday only in this shape; a name there still goes)
+SPEC_K3 = [
+    "By Brevet 2019, how many passed?",
+    "According to Kobo 2023, how many children were reached?",
+    "According to ActivityInfo 2023, how many children were reached?",
+    "Per Midterm 2022 data",
+    "Did Baccalaureate 2023 pass rates rise?",
+    "Does KoboToolbox 2021 show higher dropout?",
+    "What did Brevet 2023 show about fees?",
+    "What did Easter 2023 attendance look like?",
+    "By Christmas 2020, dropout rose.",
+    "Per Easter 2024, how many passed?",
+]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("text", SPEC_K3)
+def test_k3_an_exams_a_tools_or_a_holidays_word_after_by_or_did_stays(text):
+    for who in (privacy.NOBODY, SPEC_PEOPLE):
+        assert privacy.clean_question(text, who) == text
+        assert privacy.typed_for_ai(text, who) == text
+        assert privacy.for_ai(text, who) == text
+        assert privacy.leftover(text, who) == []
+
+
+@pytest.mark.django_db
+def test_k3_a_holiday_is_kept_in_that_shape_only():
+    for text, sent in {
+        "Christmas et al. (2019) found high dropout.": f"{W} et al. (2019) found high dropout.",
+        "Source: Easter 2023.": f"Source: {W} 2023.",
+        "By Quenby 2019, how many passed?": f"By {W} 2019, how many passed?",
+    }.items():
+        assert privacy.for_ai(text) == sent, text
+        assert privacy.clean_question(text) == sent, text
