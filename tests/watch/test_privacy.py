@@ -683,25 +683,64 @@ def test_the_final_review_texts_lose_what_a_commit_of_the_chain_withheld():
         assert redact.text(text, 500, frozenset()) == sent, text
 
 
+def test_the_written_spec_withholds_a_name_before_at_a_domain_and_an_ending():
+    """The written spec's e-mail rules (E1, E2, E3, E5): a word that may name someone before "at", a domain (a
+    place's name too) and an ending after a dot (a space after it too, any case) goes whatever comes before it
+    or follows it; a word the text writes to goes whatever it is, every item of a list of addresses too; a
+    page's domain after a verb that goes to a page goes as a link; a word before "St.Joseph" in lower case."""
+    from tests.written_addresses import SPEC_PAGES, SPEC_RECORD, SPEC_TYPED
+
+    found = {text: people.without_addresses(text) for text in SPEC_TYPED}
+    assert found == SPEC_TYPED
+    found = {text: people.without_emails(text) for text in SPEC_RECORD}
+    assert found == SPEC_RECORD
+    found = {text: redact.text(text, 500, frozenset()) for text in SPEC_RECORD}
+    assert found == SPEC_RECORD
+    for text, sent in SPEC_PAGES.items():
+        assert people.without_addresses(text) == sent, text
+        assert people.without_emails(text) == sent, text
+
+
+def test_the_written_spec_keeps_a_sentence_after_a_registered_places_name():
+    """E4: a narrative subject, a sentence's verb in lower case, "at", a registered place written capitalised, a
+    full stop, a space, a capitalised ending and a sentence in lower case is sent as it is."""
+    from tests.written_addresses import SPEC_KEPT
+
+    for text in SPEC_KEPT:
+        assert people.without_addresses(text) == text, text
+        assert people.without_emails(text) == text, text
+        assert redact.text(text, 500, frozenset()) == text, text
+
+
 def test_the_final_review_keeps_a_sentence_after_a_places_name():
-    """A plain word in lower case before a place's name written capitalised, a full stop, a space and a sentence
-    stays, as d1b90c8 read it ("Teachers trained at Hammana. Net enrolment rose after that?"); a word that may name
-    someone does not ("Met Rania at Mt. Lebanon. Org chart updated" keeps no name: its record is the record
-    rule's); a page's word after a verb that goes to a page stays, its domain a link, in a KM text too."""
+    """A sentence's verb of the written spec's closed list in lower case before a registered place's name written
+    capitalised, a full stop, a space and a sentence stays ("Teachers trained at Bebnine. Net enrolment rose after
+    that?"); a word that may name someone does not ("Met Rania at Mt. Lebanon. Org chart updated" keeps no name,
+    in a record's text too), nor, in what a person types, a place no list registers ("Teachers trained at
+    Hammana. Net ..."): a record's text keeps that one, the record rule's known limit; a page's word after a verb
+    that goes to a page stays, its domain a link, in a KM text too."""
     from neurodb.km import privacy as km_privacy
 
     for text in (
-        "Teachers trained at Hammana. Net enrolment rose after that?",
-        "Classes resumed at Zouk. Org chart updated, who approved it?",
-        "Kits arrived at Deir. Info sessions followed. How many children attended?",
+        "Teachers trained at Bebnine. Net enrolment rose after that?",
+        "Classes resumed at Minyara. Org chart updated, who approved it?",
+        "Kits arrived at Chtaura. Info sessions followed. How many children attended?",
         "Staff were present at Mt. Lebanon. Org chart updated.",
-        "We arrived at the point eg the school gate",
     ):
         assert people.without_addresses(text) == text, text
         assert people.without_emails(text) == text, text
-    assert people.without_addresses("Met Rania at Mt. Lebanon. Org chart updated.") == (
-        "Met [email withheld] chart updated."
-    )
+    for text in (
+        "Teachers trained at Hammana. Net enrolment rose after that?",
+        "Classes resumed at Zouk. Org chart updated, who approved it?",
+    ):
+        assert people.EMAIL_WITHHELD in people.without_addresses(text), text
+        assert people.without_emails(text) == text, text
+    for text in (
+        "Met Rania at Mt. Lebanon. Org chart updated.",
+        "We arrived at the point eg the school gate",
+    ):
+        assert people.EMAIL_WITHHELD in people.without_addresses(text), text
+        assert people.EMAIL_WITHHELD in people.without_emails(text), text
     for text, sent in {
         "How do I submit my report to the portal at zfakemira. org?": (
             "How do I submit my report to the portal at [link withheld]?"
@@ -723,7 +762,8 @@ def test_what_the_pushed_rules_withheld_stays_withheld():
     "point" is no French dot; a filter's search words and a page's address read a web address after "at" the
     typed rule withholds."""
     for text, sent in {
-        "Contact us at zaynafakemira.org for the files.": "Contact us at [link withheld] for the files.",
+        "Visit us at zaynafakemira.org for the files.": "Visit us at [link withheld] for the files.",
+        "Contact us at zaynafakemira.org for the files.": "Contact [email withheld] for the files.",
         "How many Session2 at SCHOOL.Net many visits": "How many Session2 at [link withheld] many visits",
         "x.y at example.org.It was": "[email withheld] was",
         "Fake notes: ZFAKEMIRA AT example.co.SHOW is the focal point": (
@@ -741,7 +781,7 @@ def test_what_the_pushed_rules_withheld_stays_withheld():
     )
     for text in (
         "Problems at this point co-ordination with partners is weak",
-        "We arrived at the point eg the school gate",
+        "Teachers met at the point eg the school gate",
         "Attendance at baseline point net of dropouts",
         "Children at school point de vue des parents",
     ):
@@ -788,8 +828,9 @@ def test_what_the_pushed_rules_withheld_stays_withheld_round_two():
 
 def test_what_the_pushed_rules_withheld_stays_withheld_round_three():
     """The third convergence round: an item after a phone number and a dash is an address's name; a name
-    before ". Org" written in a sentence goes with the domain, a place before it stays; a sentence that only
-    writes to a school at a town keeps its words."""
+    before ". Org" written in a sentence goes with the domain, a place before it stays; a sentence after a
+    town keeps its words, but after a mailing context ("Contact", "Send ... to") the whole address goes (the
+    written spec's E2)."""
     assert (
         people.without_addresses("Phone 01 234 567 - monitoring at example.org")
         == "Phone 01 234 567 - [email withheld]"
@@ -803,11 +844,17 @@ def test_what_the_pushed_rules_withheld_stays_withheld_round_three():
     for text in (
         "Staff were present at Halba. Org chart updated.",
         "We contacted the school at Bebnine. It was closed.",
-        "Contact Rami at Halba. Net enrolment is low.",
-        "Send the kits to the school at Halba. Info sessions followed.",
     ):
         assert people.without_addresses(text) == text, text
         assert redact.text(text, 500, frozenset()) == text, text
+    for text, sent in {  # the written spec's E2: after a mailing context the whole address goes
+        "Contact Rami at Halba. Net enrolment is low.": "Contact [email withheld] enrolment is low.",
+        "Send the kits to the school at Halba. Info sessions followed.": (
+            "Send the kits to the [email withheld] sessions followed."
+        ),
+    }.items():
+        assert people.without_addresses(text) == sent, text
+        assert redact.text(text, 500, frozenset()) == sent, text
 
 
 def test_a_page_address_that_names_a_person_after_a_title_is_never_sent():

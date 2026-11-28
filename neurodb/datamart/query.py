@@ -658,7 +658,7 @@ def clean_written(
 
     if _SPELLED_HINT.search(text):
         text = people.SPELLED_EMAIL.sub(spelled, text)
-        text = _on_one_line(text, people.SPELLED_EMAIL.finditer, spelled)
+        text = people.glued_after(_on_one_line(text, people.SPELLED_EMAIL.finditer, spelled))
         # a name before "at" and a domain of any case or ending ("X AT EXAMPLE.ORG", "x_y at example.invalid";
         # "published at Example.Org" stays)
         if people.DOTTED.search(text):

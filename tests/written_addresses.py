@@ -208,7 +208,6 @@ NOT_ADDRESSES = {
     # a citation's or a page's words before "at" and a web address: the domain goes as a link, the words stay
     "Report accessed at www.example.org/reports on 3 May 2024.": "Report accessed at [link withheld] on 3 May 2024.",
     "The full report can be accessed at www.example.org/report.": "The full report can be accessed at [link withheld]",
-    "Contact us at www.example.org.": "Contact us at [link withheld]",
     "Visit us at www.example.org for the tables.": "Visit us at [link withheld] for the tables.",
     "The focal point at example.org confirmed.": "The focal point at [link withheld] confirmed.",
     "Further details on the methodology at survey.example.org.": (
@@ -303,13 +302,10 @@ NOT_ADDRESSES = {
 # ".jo"): the domain goes as a link in a record's text too, the words stay
 RECORD_LINKS = {
     "The focal point at zaynafakemira.ngo confirmed.": "The focal point at [link withheld] confirmed.",
-    "Contact us at zaynafakemira.de for the files.": "Contact us at [link withheld] for the files.",
-    "Write to us at zfakemira.ae for the files.": "Write to us at [link withheld] for the files.",
     "See the chart at zfakemira.ngo for details.": "See the chart at [link withheld] for details.",
     "The results at zfakemira.jo were shared.": "The results at [link withheld] were shared.",
     "The data is available at zaynafakemira.de for all.": "The data is available at [link withheld] for all.",
     "See the guidance at zaynafakemira.ngo for details.": "See the guidance at [link withheld] for details.",
-    "Email us at zfakemira.de.": "Email us at [link withheld].",
     "Contact us at zaynafakemira.online for the files.": "Contact us at [link withheld] for the files.",
     # (regression sweep 2) a domain of several labels, or one the link rule ends before its last label: the
     # labels glued after it go with it
@@ -331,7 +327,7 @@ TYPED_NOT_ADDRESSES = {
     "the data at example.org was updated": "the data at [link withheld] was updated",
     "For more info at example.org see the guide": "For more info at [link withheld] see the guide",
     "Go to registration at example.org": "Go to registration at [link withheld]",
-    "Contact us at example.org": "Contact us at [link withheld]",
+    "Visit us at example.org": "Visit us at [link withheld]",
     # a two-sentence note: a time of day or a place, a full stop and a space, then a sentence that starts with
     # "Net", "Info", "De", "Ngo" or "Org"
     "Volunteers worked at night. Net enrolment rose.": "Volunteers worked at night. Net enrolment rose.",
@@ -494,7 +490,6 @@ TYPED_NOT_ADDRESSES = {
     "How many refugees at Saida. Info?": "How many refugees at Saida. Info?",
     "How many cases at Halba. Info?": "How many cases at Halba. Info?",
     "Which partners at Halba. Info?": "Which partners at Halba. Info?",
-    "What was the Xyzzy at Halba. Net?": "What was the Xyzzy at Halba. Net?",
     # a field's code holding a digit before a place and a sentence
     "Monitoring visit to School2 at Akkar. NGO staff were present?": (
         "Monitoring visit to School2 at Akkar. NGO staff were present?"
@@ -541,16 +536,13 @@ TYPED_NOT_ADDRESSES = {
     "How do I submit my report to the portal at example.org?": "How do I submit my report to the portal at [link withheld]?",
     "How do I return to the dashboard at example.org?": "How do I return to the dashboard at [link withheld]?",
     "Teachers report to the platform at example.org every week.": "Teachers report to the platform at [link withheld] every week.",
-    # (final review) a plain word in lower case before a place's name written capitalised, a full stop, a
-    # space and a sentence that goes on: no address, as d1b90c8 read it
-    "Teachers trained at Hammana. Net enrolment rose after that?": "Teachers trained at Hammana. Net enrolment rose after that?",
-    "Children returned at Wardaniyeh. Net enrolment rose by 5%.": "Children returned at Wardaniyeh. Net enrolment rose by 5%.",
-    "Classes resumed at Zouk. Org chart updated, who approved it?": "Classes resumed at Zouk. Org chart updated, who approved it?",
-    "Kits arrived at Deir. Info sessions followed. How many children attended?": "Kits arrived at Deir. Info sessions followed. How many children attended?",
-    "Volunteers worked at Wardaniyeh. Net enrolment rose there?": "Volunteers worked at Wardaniyeh. Net enrolment rose there?",
+    # (the written spec, E4) a sentence's verb of its closed list in lower case before a registered place's name
+    # written capitalised, a full stop, a space and a sentence that goes on: no address
     "Teachers trained at Bebnine. Net enrolment rose after that?": "Teachers trained at Bebnine. Net enrolment rose after that?",
-    "Teachers were trained at Hammana. Net enrolment rose after that?": "Teachers were trained at Hammana. Net enrolment rose after that?",
-    "We arrived at the point eg the school gate": "We arrived at the point eg the school gate",
+    "Classes resumed at Minyara. Org chart updated, who approved it?": "Classes resumed at Minyara. Org chart updated, who approved it?",
+    "Kits arrived at Chtaura. Info sessions followed. How many children attended?": "Kits arrived at Chtaura. Info sessions followed. How many children attended?",
+    "Volunteers worked at Tebnine. Net enrolment rose there?": "Volunteers worked at Tebnine. Net enrolment rose there?",
+    "Teachers were trained at Amchit. Net enrolment rose after that?": "Teachers were trained at Amchit. Net enrolment rose after that?",
 }
 # what a person types that holds an address, and how it is sent: a word after the domain that follows an
 # address ("before", "thanks"), the end of the text or a mark, or a word before the name that writes to one
@@ -934,12 +926,12 @@ RECORD_ADDRESSES = {
 # word after a verb that mails is a mailbox ("Please email the report to the dashboard at ..."); a capitalised
 # word before a place's first word written short and glued ("Met Rania at St.Joseph.")
 FINAL_TYPED = {
-    "Met Rania HADDAD at Bebnine. Info sessions followed.": "Met Rania [email withheld] sessions followed.",
-    "Rania HADDAD at Bebnine. Org chart updated.": "Rania [email withheld] chart updated.",
+    "Met Rania HADDAD at Bebnine. Info sessions followed.": "Met [email withheld] sessions followed.",
+    "Rania HADDAD at Bebnine. Org chart updated.": "[email withheld] chart updated.",
     "The team met HADDAD at Mt. Lebanon. Info sessions followed.": "The team met [email withheld] sessions followed.",
     "ZFAKEMIRA at Bebnine. Info sessions followed.": "[email withheld] sessions followed.",
     "Meeting with KHALIL at Tebnine. Net enrolment rose.": "Meeting with [email withheld] enrolment rose.",
-    "Spoke with Mira SAAB at Minyara. Info sessions were held.": "Spoke with Mira [email withheld] sessions were held.",
+    "Spoke with Mira SAAB at Minyara. Info sessions were held.": "Spoke with [email withheld] sessions were held.",
     "NASSAR at Amchit. Info: the kits": "[email withheld]: the kits",
     "ZAYNA AT BEBNINE. INFO SESSIONS FOLLOWED.": "[email withheld] SESSIONS FOLLOWED.",
     "Staff of ZQXA at Bebnine. Info sessions were held.": "Staff of [email withheld] sessions were held.",
@@ -976,7 +968,7 @@ FINAL_TYPED = {
     "Reply to the survey at example.org before June": "Reply to the [email withheld] before June",
     "Submit the form to the portal at zfakemira. org before June": "Submit the form to the [email withheld] before June",
     "Email it to the Zayna Fakemira portal at example.org": "Email it to the Zayna Fakemira [email withheld]",
-    "Met Rania at St.Joseph. Org chart updated.": "Met [email withheld]. Org chart updated.",
+    "Met Rania at St.Joseph. Org chart updated.": "Met [email withheld] chart updated.",
     "Met Rania at St.Joseph. Then left.": "Met [email withheld]. Then left.",
     "Met Rania at St. Joseph. Org chart updated.": "Met [email withheld] chart updated.",
     "Rank Zayna at example. Org by year": "Rank [email withheld] by year",
@@ -985,7 +977,7 @@ FINAL_TYPED = {
 # capitalised word before a domain whose words name no place and no sentence writes, then ". Org", ". Lb",
 # ". Info" or ". Net" ("Rank Zayna at example. Org by year")
 FINAL_RECORD = {
-    "Met Rania HADDAD at Bebnine. Info sessions followed.": "Met Rania [email withheld] sessions followed.",
+    "Met Rania HADDAD at Bebnine. Info sessions followed.": "Met [email withheld] sessions followed.",
     "The team met HADDAD at Mt. Lebanon. Info sessions followed.": "The team met [email withheld] sessions followed.",
     "Staff of ZQXA at Bebnine. Info sessions were held.": "Staff of [email withheld] sessions were held.",
     "We met the NGO at Bebnine. Info sessions followed.": "We met the [email withheld] sessions followed.",
@@ -1000,10 +992,118 @@ FINAL_RECORD = {
     "Mail the forms to the portal at example.org": "Mail the forms to the [email withheld]",
     "Reply to the survey at example.org before June": "Reply to the [email withheld] before June",
     "Rank Zayna at example. Org by year": "Rank [email withheld] by year",
-    "Show Rania Haddad at example. Org": "Show Rania [email withheld]",
+    "Show Rania Haddad at example. Org": "Show [email withheld]",
     "List the files from Zayna at example. Lb": "List the files from [email withheld]",
     "Show Zayna at example. Info": "Show [email withheld]",
 }
+# (the written spec, rules E1 to E5) what a person types, and how it is sent. E1: a word that may name someone
+# before "at", a domain (a place's name too, "the" before "point"), a dot and a domain's ending in any case
+# loses its name whatever comes before it (a determiner too) and whatever follows (a sentence too); E2: a word
+# the text writes to, a given name or a title between them too, and every item of a list of addresses; E5: a
+# word in lower case before a place's first word written short and glued ("met zayna at st.joseph.")
+SPEC_TYPED = {
+    # E1
+    "HADDAD at Halba. Org replied.": "[email withheld] replied.",
+    "Met KHALIL at Halba. Lb office closed.": "Met [email withheld] office closed.",
+    "Met Rania HADDAD at Tyre. Org chart updated.": "Met [email withheld] chart updated.",
+    "Met Zayna at Mt. Hermel. Org chart updated.": "Met [email withheld] chart updated.",
+    "Our Rania at Halba. Org has the files.": "Our [email withheld] has the files.",
+    "Their Haddad at Halba. Org has the files.": "Their [email withheld] has the files.",
+    "Which Rania at Halba. Org": "Which [email withheld]",
+    "Our Rania at Halba. Org replied.": "Our [email withheld] replied.",
+    "Zayna at the point de": "[email withheld]",
+    "Met Rania at the point de vue": "Met [email withheld] vue",
+    "Rania at this point eg": "[email withheld]",
+    "Met Rania at Halba. Info sessions followed.": "Met [email withheld] sessions followed.",
+    "Rania at example. Gov": "[email withheld]",
+    "Rania at Halba. Edu replied.": "[email withheld] replied.",
+    "rania at Hotmail. Org replied": "[email withheld] replied",
+    "Our rania at Fakemira. Org replied.": "Our [email withheld] replied.",
+    "rania at Hammana. Net enrolment rose after that?": "[email withheld] enrolment rose after that?",
+    "zayna at Zaynafakemira. Info sessions followed": "[email withheld] sessions followed",
+    "Met rania at Bebnine. Org replied.": "Met [email withheld] replied.",
+    "What was the Xyzzy at Halba. Net?": "What was the [email withheld]?",
+    "We arrived at the point eg the school gate": "We [email withheld] the school gate",
+    # a word of no sentence's closed list, or a place no list registers ("Hammana", "Zouk", "Deir"): no sentence's
+    # reading in what a person types (a record's text keeps it, the record rule's known limit)
+    "Teachers trained at Hammana. Net enrolment rose after that?": "Teachers [email withheld] enrolment rose after that?",
+    "Children returned at Wardaniyeh. Net enrolment rose by 5%.": "Children [email withheld] enrolment rose by 5%.",
+    "Classes resumed at Zouk. Org chart updated, who approved it?": "Classes [email withheld] chart updated, who approved it?",
+    "Kits arrived at Deir. Info sessions followed.": "Kits [email withheld] sessions followed.",
+    # E2
+    "Please email Zayna Fakemira at Halba. Lb for the list.": "Please email [email withheld] for the list.",
+    "Write to Zayna Fakemira at Halba. Org for the files.": "Write to [email withheld] for the files.",
+    "Contact Rania Haddad at Halba. Org for the list.": "Contact [email withheld] for the list.",
+    "Please email Ms. Fakemira at Halba. Lb for the list.": "Please email [email withheld] for the list.",
+    "Write to the school at Minyara. Net for the files.": "Write to the [email withheld] for the files.",
+    "Write to monitoring at Halba. Gov for the files.": "Write to [email withheld] for the files.",
+    "Contact us at example. Org for the files.": "Contact [email withheld] for the files.",
+    "Contact us at example.org": "Contact [email withheld]",
+    "To: monitoring at example. Org, IT at example. Org": "To: [email withheld], [email withheld]",
+    "Contacts: partners at example. Org, monitoring team at example. Org": (
+        "Contacts: [email withheld], monitoring [email withheld]"
+    ),
+    "Cc: partners at example. Org; the field team at example. Org": "Cc: [email withheld]; the field [email withheld]",
+    # E3: a page's word after a verb that goes to a page, a word between "the" and it too: the domain goes as a link
+    "Report to the new portal at zfakemira. org": "Report to the new portal at [link withheld]",
+    "Submit it to the portal at zfakemira. Org": "Submit it to the portal at [link withheld]",
+    # E5
+    "zfakemira at St.Joseph. Org": "[email withheld]",
+    "Met rhaddad at St.Joseph.": "Met [email withheld].",
+    "met zayna at st.joseph.": "met [email withheld].",
+    "Met rania at Mar.Elias. Then left.": "Met [email withheld]. Then left.",
+}
+# (the written spec) a record's or a document's text, and how every record path sends it: E1 (a capitalised
+# word, or one before a domain that is no place's name written capitalised, or before an ending that no
+# sentence goes on from), E2 (a word the text writes to, "us" too: "Contact us at [link withheld]" is no longer
+# sent) and E3 as in what a person types
+SPEC_RECORD = {
+    "HADDAD at Halba. Org replied.": "[email withheld] replied.",
+    "Met Rania HADDAD at Tyre. Org chart updated.": "Met [email withheld] chart updated.",
+    "Our Rania at Halba. Org has the files.": "Our [email withheld] has the files.",
+    "Met Rania at Halba. Info sessions followed.": "Met [email withheld] sessions followed.",
+    "Met Rania at the point de vue": "Met [email withheld] vue",
+    "Show Rania at Fakemira. Info sessions followed": "Show [email withheld] sessions followed",
+    "zfakemira at example. Lb has the files": "[email withheld] has the files",
+    "Rania at Halba.Org": "[email withheld]",
+    "Met rania at Halba.Org chart updated.": "Met [email withheld] chart updated.",
+    "rania at Bebnine. Org.": "[email withheld].",
+    "Rania at example. Gov": "[email withheld]",
+    "zfakemira at St.Joseph. Org": "[email withheld]",
+    "We arrived at the point eg the school gate": "We [email withheld] the school gate",
+    "Please email Zayna Fakemira at Halba. Lb for the list.": "Please email [email withheld] for the list.",
+    "Contact us at www.example.org.": "Contact [email withheld].",
+    "Contact us at zaynafakemira.de for the files.": "Contact [email withheld] for the files.",
+    "Write to us at zfakemira.ae for the files.": "Write to [email withheld] for the files.",
+    "Email us at zfakemira.de.": "Email [email withheld].",
+    "Write to the school at Minyara. Net for the files.": "Write to the [email withheld] for the files.",
+    "To: monitoring at example. Org, IT at example. Org": "To: [email withheld], [email withheld]",
+    "Contacts: partners at example. Org, monitoring team at example. Org": (
+        "Contacts: [email withheld], monitoring [email withheld]"
+    ),
+    "Submit it to the portal at zfakemira. Org": "Submit it to the portal at [link withheld]",
+}
+# (the written spec, E3) a page's word after a verb that goes to a page, a word between "the" and it too: no
+# word of the domain is left on any path, the KM Database's too (which reads no link after it)
+SPEC_PAGES = {
+    "Report to the new portal at zfakemira. org": "Report to the new portal at [link withheld]",
+    "Submit it to the school portal at haddad. org": "Submit it to the school portal at [link withheld]",
+    "Teachers report to the online form at zfakemira. lb": "Teachers report to the online form at [link withheld]",
+    "Submit it to the portal at zfakemira. Org": "Submit it to the portal at [link withheld]",
+}
+# (the written spec, E4) a narrative subject, a sentence's verb or noun in lower case, "at", a registered
+# Lebanese place written capitalised, a full stop, a space, a capitalised ending and a sentence in lower case:
+# sent as it is, in what a person types and in a record's text
+SPEC_KEPT = (
+    "Teachers trained at Bebnine. Net enrolment rose after that?",
+    "Staff were present at Halba. Org chart updated.",
+    "Kits were delivered at Tyre. Lb of rice each.",
+    "Workshops were held at Minyara. Info sessions followed.",
+    "Students studied at Jbeil. Org chart updated.",
+    "Kits were stationed at Halba. Lb of rice each.",
+    "Classes resumed at Zahle. Net enrolment rose after that?",
+    "Staff were based at Chtaura. Info office closed.",
+)
 # what a person types with an address's name before a link's scheme (a name's shape, or "at" written as no
 # sentence writes it): no e-mail address, but its name goes as one would (what is sent and kept is the same on
 # every turn)

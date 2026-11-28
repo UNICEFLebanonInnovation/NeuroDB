@@ -225,7 +225,11 @@ download the findings it read.
   "List, Q. (2019)", "See & Quenby 2021" lose them). An e-mail address is taken out whole, also when it is written
   out with "at" and "dot" in words, with dashes or in brackets ("x [ at ] example [ dot ] org", "x -at-
   example -dot- org"), in your question and in the downloads; in your question also any name before "at" and a
-  web address, in capitals or not, while a common word stays ("children at [link withheld]"). If a name is
+  web address, in capitals or not, while a common word stays ("children at [link withheld]"). The rules are
+  every assistant's: a name before "at", a place's name and ". Org" goes in a finding too ("Met Rania HADDAD at
+  Tyre. Org chart updated" is downloaded as "Met [email withheld] chart updated"), a mailbox you write to goes
+  whole ("Write to the school at Minyara. Net"), a page's address after "Report to the new portal at" goes as a
+  link, and a field note's sentence stays ("Staff were present at Halba. Org chart updated"). If a name is
   still found, nothing is sent.
 - **The answer.** Each sentence ends with the findings it rests on, as [references]: each one opens its
   finding, in a new tab. An opening sentence that sums up the answer may have none. Figures are given

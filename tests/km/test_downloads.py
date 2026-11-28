@@ -564,6 +564,32 @@ def test_a_source_a_speaker_and_an_address_whose_ending_is_a_word_are_never_down
     assert b"fakeharb" not in _xlsx_text(_get(client_viewer, export="xlsx")[1]).lower()
 
 
+def test_the_written_specs_addresses_are_never_downloaded(client_viewer):
+    """The written spec in a download: a capitalised name before a place's name, a dot, a space and a capitalised
+    ending (E1), a mailbox written to at a place's name and ". Net" (E2), a page's domain after "Report to the
+    new portal" (E3): none of their names or domains is downloaded; E4's sentence is downloaded as it is."""
+    edits = {
+        ("findings", 2, "Key Finding"): "Met Rania HADDAD at Tyre. Org chart updated.",
+        ("findings", 2, "Finding Analysis"): "Write to the school at Minyara. Net for the files.",
+        ("findings", 3, "Key Finding"): "Report to the new portal at zfakeharb. org",
+        ("findings", 3, "Finding Analysis"): "Staff were present at Halba. Org chart updated.",
+    }
+    factory.load(factory.workbook(documents=1, findings=3, edits=edits))
+    _, body = _get(client_viewer, export="csv")
+    for word in (b"HADDAD", b"Minyara", b"zfakeharb"):
+        assert word not in body, word
+    rows = {r["finding_id"]: r for r in _csv(body)}
+    assert rows[factory.finding_id(1, 1)]["key_finding"] == "Met [email withheld] chart updated."
+    assert (
+        rows[factory.finding_id(1, 1)]["finding_analysis"] == "Write to the [email withheld] for the files."
+    )
+    assert rows[factory.finding_id(1, 2)]["key_finding"] == "Report to the new portal at [link withheld]"
+    assert (
+        rows[factory.finding_id(1, 2)]["finding_analysis"]
+        == "Staff were present at Halba. Org chart updated."
+    )
+
+
 @pytest.mark.django_db
 def test_a_requests_word_cited_as_a_name_is_never_written_on_the_about_sheet():
     """A request's word that is a family name too ("Rank", "List", "See") in a citation's shape: the question

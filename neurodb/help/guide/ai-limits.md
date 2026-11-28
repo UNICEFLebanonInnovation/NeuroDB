@@ -84,9 +84,17 @@ address.
   "x at EXAMPLE.NO", "x at Example.Online", "x at example.now"); "point" in French for the dot too ("x
   arobase example point org", "x arobase health point org", "x at health point org", "Write to Rania at the point
   org"; "at this point co-ordination" stays). When it is unclear whether a word before "at" is a name, it goes
-  with the address: a surname or an acronym in capitals before a place and ". Info" ("Met Rania HADDAD at
-  Bebnine. Info sessions followed" loses "HADDAD at Bebnine. Info"), a name after "our" or "the" ("Our Rania at
-  example. Org replied"), a name before "St." glued to a word ("Met Rania at St.Joseph."). A page's address (in the Help assistant and Monitoring insights) that writes a
+  with the address, in every text: any word that may name someone before "at", a domain (a place's name too)
+  and an ending after a dot, in any case and whatever follows ("Met Rania HADDAD at Bebnine. Info sessions
+  followed" loses "Rania HADDAD at Bebnine. Info": a given name or a title before the name goes with it), a
+  name after "our" or "the" ("Our Rania at Halba. Org has the files"), "Zayna at the point de", a name before
+  "St." glued to a word, in lower case too ("met zayna at st.joseph."). After "write to", "email", "contact",
+  "cc", "To:" or "Recipients:", with up to two words between, the whole address goes whatever its first word
+  ("Write to the school at Minyara. Net for the files", "Contact us at example dot org"), and so does every
+  address of a list after one ("To: monitoring at example. Org, IT at example. Org"). A field note's sentence
+  stays: a verb such as "trained", "held", "delivered" or "present" before "at", a place of NeuroDB's list,
+  ". Org", ". Net", ". Info" or ". Lb" and a sentence ("Teachers trained at Bebnine. Net enrolment rose after
+  that?"); with a place NeuroDB does not list, the words go in what you type. A page's address (in the Help assistant and Monitoring insights) that writes a
   person's name after a title ("Ms ...", "Fr ...") is not sent either. The word before "at" decides: after a word
   that names no one (also what a report says happened there,
   "reported", "happened", "visited", "closed", "took place"..., and one of Lebanon's governorates, districts
@@ -110,7 +118,8 @@ address.
   also a word ("write to x at example.no before June"); a grade's code ("CE2 at school.it was crowded") stays;
   after a plain word, a site's address in capitals, of another ending or with a space after its dot is taken
   as a link only, so "published at" a site's address keeps its words, and after a common word a site's address
-  the link rule does not know (".ngo", ".de") goes as a link ("Contact us at [link withheld]").
+  the link rule does not know (".ngo", ".de") goes as a link ("the guide at [link withheld]"; after "Contact"
+  or "Write to" the whole address goes).
 - **Documents the AI reads whole** (a document to review or summarise, a report's pages, a Word or text
   CPD, the daily review's findings, the What's new note) lose their e-mail addresses by the same rule as
   notes; links stay in them. A CPD in PDF is sent as the file, as it is.

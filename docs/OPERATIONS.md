@@ -397,6 +397,45 @@ come from.
   Every character nobody sees goes first (Unicode's format characters: the zero-width ones, the
   left-to-right and right-to-left marks and isolates of text copied from Arabic, and the joiners,
   variation selectors and fillers).
+  - *Five rules come first*, in every text, typed or not, before the readings below (the written privacy spec's
+    E1 to E5, `people.written_out`, `people.spelled_out`):
+    1. A word that may name someone before "at" (any word but one that names no one, a place's name or a
+       code), then a domain (an invented word, a mail provider, a place's name, "Mt. Lebanon", "St.Joseph",
+       "the" or "health" before "point") and an ending of `people.KNOWN_ENDINGS` in any case after a dot, a
+       dot and a space, a space and a dot or a dot spelled out: the name and the domain go, whatever comes
+       before the name, a determiner too ("Our Rania at Halba. Org has the files" → "Our [email withheld] has
+       the files"), and whatever follows ("Met Rania at Halba. Info sessions followed" → "Met [email withheld]
+       sessions followed"; "Zayna at the point de" → "[email withheld]"; "Rania at example. Gov"). A given
+       name, an initial or a title right before a capitalised name goes with it ("Write to Mira Vantrell at
+       Minyara. Com" → "Write to [email withheld]", "Please email Ms. Fakemira at Halba. Lb" → "Please email
+       [email withheld]"). Two shapes read as before: a domain of a sentence's words after a dot and a space
+       ("Volunteers worked at night. Net enrolment rose"), and, in a record's text only, a word in lower case
+       before a capitalised domain, a capitalised ending after ". " and a word in lower case ("worked at
+       Riverside. Net enrolment rose": the record rule's known limit).
+    2. A mailing context before the name, up to two words between them ("write to", "email", "mail", "send
+       (it) to", "cc", "copy", "contact", "reply to", "forward (it) to", "reach", "get in touch with", "To:",
+       "Cc:", "Bcc:", "Recipients:", "Contacts:", "Mailboxes:", "the address is", "her email is"): the whole
+       address goes, whatever word its name is ("Write to the school at Minyara. Net for the files" → "Write
+       to the [email withheld] for the files", "Contact us at example.org" → "Contact [email withheld]"). In
+       a list of addresses joined by ",", ";", "/", "&", "and", "or" or "cc", every item after one withheld
+       goes too, whatever its name ("To: monitoring at example. Org, IT at example. Org", "Cc: partners at
+       example. Org; the field team at example. Org"), and so does an ending left after an address withheld
+       ("x@St.Joseph. Org", "x arobase health point gov point Co").
+    3. A page's word after a verb that goes to a page ("submit", "upload", "post", "return", "report", "log
+       in", "sign in", "navigate") and "to the", one word between them too: its domain goes as a link in every
+       text, the KM Database's too ("Report to the new portal at zfakemira. org" → "Report to the new portal
+       at [link withheld]"); before "before June" or "thanks" it is a mailbox and goes whole.
+    4. A field note's sentence stays: a sentence's verb or noun of a closed list in lower case
+       (`people.SENTENCE_LOCAL`: "trained", "held", "resumed", "delivered", "present", "arrived", "worked",
+       "based", "met", "staff", "training"...), " at ", a registered Lebanese place written capitalised (the
+       KM Database's places, `people.MAIN_PLACE_WORDS`; after "Mt." too), ". ", "Org", "Net", "Info" or "Lb"
+       and a word in lower case ("Teachers trained at Bebnine. Net enrolment rose after that?", "Kits were
+       stationed at Halba. Lb of rice each"). Those words are a sentence's in that shape only; a place no list
+       registers is no place there ("Teachers trained at Hammana. Net enrolment rose after that?" loses
+       "trained at Hammana. Net" in what a person types; a record's text keeps it, as above).
+    5. In what a person types, a word that may name someone, in any case and after any "at", before a place's
+       first word written short and glued to the next ("met zayna at st.joseph." → "met [email withheld].",
+       "ZM2 arobase st.joseph").
   - *What a person types* gets the typed rule (`people.without_addresses`): a question of Ask NeuroDB, of the
     Monitoring insights chat, of the Help assistant or of the KM Database, each earlier question sent again,
     the Help page's title and the search words of a Monitoring insights filter. "x at example.org",
@@ -411,9 +450,9 @@ come from.
     someone, "x at health point org", "x at the point example point org", "x arobase sante point gov point
     lb", and after a word the text writes to or names an address, "Contact monitoring at health point org",
     "To: data at education point gov point lb", "Write to Rania at the point org"; after a word that names no
-    one, or a plain word before one "point" after a word of a sentence's grammar and before "eg" or "de", it
-    is a sentence's: "the data point de facto", "at this point co-ordination", "We arrived at the point eg the
-    gate", "at baseline point net of dropouts" stay), "x 'at' example.org", "x 'at' example
+    one it is a sentence's: "the data point de facto", "at this point co-ordination", "Teachers met at the
+    point eg the gate", "at baseline point net of dropouts" stay, never after a word that may name someone:
+    "We arrived at the point eg the gate" loses "arrived at the point eg"), "x 'at' example.org", "x 'at' example
     'dot' org", "x *at* example *dot* org", "x /at/ example /dot/ org", "x at-sign example.org", "x at at
     example.org", "x at example period org", "x(a)example.org", "x-at-example-dot-org",
     "x-at-example-dot-invalid" and "x_at_example_dot_org" lose the whole address, the name before "at" too,
@@ -457,7 +496,7 @@ come from.
     withheld]"), a measure or what a
     question counts ("the enrolment at", "rates at", "dropout at", "the GER at", "cases at", "partners at") or
     a web address's, a citation's or a page's word ("available", "published", "the dashboard", "the guide",
-    "the profile", "accessed", "Contact us", "the focal point", "the methodology", "the chart", "an error at",
+    "the profile", "accessed", "Visit us", "the focal point", "the methodology", "the chart", "an error at",
     "the red flag at", "the page is blank at", "I am stuck at", "the map hangs at"), or a code, which names no
     one ("How many G5 at [link withheld]" for "Tyre.Gov"; before a domain whose words no sentence writes, a
     code is an address's name whatever follows, in every text: "How many [email withheld]", "team1 at
@@ -493,9 +532,9 @@ come from.
     sessions"), an at sign with no space around it ("x@example. info", "x@hotmail. Fr") or an "at" no sentence
     writes; after a name whose only address's shape is a digit, unless a word of the sentence goes on after
     them ("x2 at example. net for the files" goes, "Mar2024 at Akkar. NGO staff" stays); never after a word
-    that names no one ("the enrolment at Halba. Net or gross?", "visits at Akkar. NGO staff") or a word after
-    "the", "a", "any", "which", "what"... (`DETERMINERS`: "What was the GER at Halba. Net?"; never one before
-    a colon: "one of these: x at example. net"); otherwise (a plain word, an at sign with a space, a class, a
+    that names no one ("the enrolment at Halba. Net or gross?", "What was the GER at Halba. Net?", "visits at
+    Akkar. NGO staff"; no determiner makes a word that may name someone a thing: "What was the Xyzzy at Halba.
+    Net?" loses "Xyzzy at Halba. Net"); otherwise (a plain word, an at sign with a space, a class, a
     disease or a saint's school: "Training @ Halba. Info session", "Class 4B at Tyre. Info sessions",
     "Students from St.Joseph at Tyre. Info sessions") only when what follows them follows an address: the
     text's end or a mark ("x at hotmail. fr", "x at example. net (work)"; ". it" and ". me" only so),
@@ -525,7 +564,7 @@ come from.
     names no one, as above ("more at unicef.org", "the dashboard at data.unicef.org", "available at
     www.unicef.org/lebanon": the domain and its path are left to the link rule, which withholds them as a
     link; a known ending the link rule does not take, ".ngo", ".de", ".ae", ".jo"..., or a domain with a space
-    is withheld as a link here, `people._left_to_links`: "Contact us at [link withheld]"). Before a domain in
+    is withheld as a link here, `people._left_to_links`: "the guide at [link withheld]"). Before a domain in
     capitals, of another ending or with a space after its dot, only when that word holds a full stop, "_", "+"
     or a digit (never a time, an ordinal, a measure or an item's number: "9.30am", "9am", "2nd", "no.2", "q3")
     or is in capitals with "AT" ("x.y at Example.Org", "x_y at example.invalid", "X AT EXAMPLE.ORG", "x_y at
@@ -560,34 +599,30 @@ come from.
   - *Texts sent whole* with no other cleaning (a document to review or summarise, a periodic report's
     pages, a Word or text CPD, a daily review finding, a What's new line) lose their addresses by the
     record rule (`people.without_emails`), so what it keeps by design goes as written there; as no link
-    rule reads them after, a web address written after a word and "at" goes there as a link ("Contact us at
+    rule reads them after, a web address written after a word and "at" goes there as a link ("Visit us at
     [link withheld]", "How many Session2 at [link withheld]"); a text without one is sent exactly as it is,
     and a CPD in PDF is sent as the file, not cleaned.
   - After a dot and a space, a sentence that goes on after a place or a time of day is no domain
     (`people.SENTENCE_NOUNS`; "Org" may start a sentence too): "Volunteers worked at night. Net enrolment
     rose", "Kits were delivered at Akkar. Org chart updated", "We started at dawn. Info: 40 kits were
     delivered" stay; "is Zfakemira at example. ORG correct?" and "x2 at example. fr sent the report" do not.
-    In what a person types, a word that may name someone before a domain whose words no sentence writes ends
-    an address with any ending after a dot and a space, whatever word comes before it, privacy first ("Rania
-    at example. Info replied", "did zfakemira at example. net reply?", "Our Rania at example. Org replied",
-    "Met Rania HADDAD at Bebnine. Info sessions followed"; an acronym reads as a surname in capitals: "We met
-    the NGO at Bebnine. Info sessions followed" loses "NGO at Bebnine. Info"); only a plain word in lower case
-    before a place's name written capitalised and a capitalised word that a sentence goes on from counts it
-    only before what follows an address ("Teachers trained at Hammana. Net enrolment rose after that?",
-    "Classes resumed at Zouk. Org chart updated", "Staff were present at Mt. Lebanon. Org chart updated" stay).
+    A word that may name someone before a domain and an ending after a dot and a space ends an address, as the
+    first of the five rules above says, privacy first ("Rania at example. Info replied", "did zfakemira at
+    example. net reply?", "Met Rania HADDAD at Bebnine. Info sessions followed"; an acronym reads as a surname
+    in capitals: "We met the NGO at Bebnine. Info sessions followed" loses "NGO at Bebnine. Info"); only the
+    field note's sentence of the fourth stays ("Staff were present at Mt. Lebanon. Org chart updated").
     The KM Database's places (`km.places`, which the KM app registers in `people.PLACE_SOURCES` when it starts,
     so that no other module imports it) and the words of a sentence are a place's domain; "Mt." or "St." is
     one only before such a word ("Mt. Lebanon"; "Mt. Example", "St. Joseph" are not). ". Org", ". ORG", ".
     Lb", ". LB" and ". Com" end the domain after a word that may name someone whatever follows, before a
     domain whose words name no place ("Rania at example. Lb for the files", "the focal point is zfakemira at
     example. Org and she knows"; "Kits were delivered at Tyre. Lb of rice each" stays). In what a person
-    types, a capitalised word that may name someone before a place's first word written short and glued to
-    the next goes with them ("Met Rania at St.Joseph." → "Met [email withheld].").
+    types, a word that may name someone before a place's first word written short and glued to the next goes
+    with them ("Met Rania at St.Joseph." → "Met [email withheld].", "met zayna at st.joseph.").
     In a record's text, a plain word before a domain whose words no sentence writes, that no link rule takes,
     is an address's name ("Rania at example.it has the files"), and so is a capitalised word before such a
-    domain whose words name no place, then a capitalised ending after a dot and a space ("Rank Zayna at
-    example. Org by year", "Show Zayna at example. Info"; "Met Rania at Riverside. Info sessions followed"
-    stays: a place's name and a sentence).
+    domain whose words name no place, then an ending after a dot and a space ("Rank Zayna at example. Org by
+    year", "Show Zayna at example. Info", "Sent by Zayna at example. it if needed").
   - In a record's text, a name in capitals and "AT", or of capitals and digits, before a domain whose words
     before its ending no sentence writes (`people._foreign`: not a common word, a place or a code) is an
     address's name whatever the ending's case and whatever follows it ("X AT EXAMPLE.IT HAS THE DATA", "X2
@@ -597,7 +632,7 @@ come from.
     grade's or a programme's code ("CE2", "BT2", "BLN2", "ALP1") and a school, fiscal or academic year's code
     ("SY2024", "FY2023", "PD2023", "Mar2024") is a code, no name.
   - *The search words of a Monitoring insights filter* lose an address written in them, and a web address
-    written after a word and "at" that the typed rule withholds ("Contact us at [link withheld]",
+    written after a word and "at" that the typed rule withholds ("the guide at [link withheld]",
     `people.withheld_typed`), by the typed rule, as soon as the filter is read (`fmm.scope.searched`, before
     they are cut to 200 characters, so that no cut leaves part of one; the Help page's address is read whole
     too, then cut): no visit's search

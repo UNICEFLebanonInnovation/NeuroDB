@@ -562,6 +562,28 @@ def test_a_km_question_loses_what_a_record_loses():
         assert not left(ask._searchable(text)), text
 
 
+@pytest.mark.django_db
+def test_the_written_spec_in_a_km_text_and_question():
+    """The written spec's e-mail rules in the KM Database (which reads no link after them): a question loses what
+    any typed text loses (E1, E2, E5), a KM text and its download what any record's text loses; a page's domain
+    after a verb that goes to a page goes as a link, a word between "the" and the page's word too (E3); the
+    sentence of E4 is sent and downloaded as it is."""
+    from tests.written_addresses import SPEC_KEPT, SPEC_PAGES, SPEC_RECORD, SPEC_TYPED
+
+    for text, sent in SPEC_TYPED.items():
+        assert privacy.clean_question(text) == sent, text
+    for text, sent in SPEC_RECORD.items():
+        assert privacy.for_ai(text) == sent, text
+        assert privacy.for_download(text) == sent, text
+        assert privacy.typed_for_ai(text) == sent, text
+    for text, sent in SPEC_PAGES.items():
+        for clean in (privacy.for_ai, privacy.for_download, privacy.typed_for_ai, privacy.clean_question):
+            assert clean(text) == sent, (clean.__name__, text)
+    for text in SPEC_KEPT:
+        for clean in (privacy.for_ai, privacy.for_download, privacy.typed_for_ai, privacy.clean_question):
+            assert clean(text) == text, (clean.__name__, text)
+
+
 # ------------------------------------------------------- a person's name that is also a town's (places.py)
 TOWN_NAMES = (
     "Naameh (2021) found that 12% of girls married before 18.",

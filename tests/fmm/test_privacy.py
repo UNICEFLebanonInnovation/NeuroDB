@@ -1081,13 +1081,15 @@ def test_a_look_up_s_page_address_holding_an_address_is_not_shared():
 
 
 def test_a_web_address_after_at_leaves_the_search_words_and_the_page_address():
-    """The typed rule withholds a web address written after a word and "at" as a link ("Contact us at [link
-    withheld]"): the filter's search words lose it too, and a page's address whose query holds it is not
+    """The typed rule withholds a web address written after a word and "at" as a link ("the guide at [link
+    withheld]"), and a whole address after a word that writes to it ("Contact [email withheld]", the written
+    spec's E2): the filter's search words lose it too, and a page's address whose query holds it is not
     handed to the model (the pushed rules read it as an address and withheld it)."""
     from neurodb.fmm import scope
 
     q = "Contact us at zaynafakemira.de for the files."
-    assert scope.searched(q) == "Contact us at [link withheld] for the files."
+    assert scope.searched(q) == "Contact [email withheld] for the files."
+    assert scope.searched("the guide at zaynafakemira.de is down") == "the guide at [link withheld] is down"
     assert (
         scope.searched("How many visits at Halba had red flags?") == "How many visits at Halba had red flags?"
     )
